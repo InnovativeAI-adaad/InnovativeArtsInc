@@ -85,21 +85,38 @@ planned:
 
 ---
 
-## 3. AGENT_LOG.md Format
+## 3. AGENT_LOG.md Format — HMAC-Chained Ledger (SPEC-IAI-004)
+
+> **Constitutional upgrade applied — ADAAD v9.77.1 · HUMAN-0 ratified 2026-04-16**
+>
+> `AGENT_LOG.md` is an **append-only, HMAC-chained audit ledger**. Every entry must
+> chain to the prior entry's `entry_digest` via `prev_digest`. Any gap or digest
+> mismatch is an `INV_CHAIN` violation — hard abort.
 
 The agent appends a structured log entry for every action:
 
-```markdown
-## [ISO-8601 Timestamp]
-- **Workflow:** WF-NNN or ad-hoc
-- **Action:** Description of what was done
-- **Target:** File / Branch / Issue / PR / External
-- **Level:** 1 | 2 | 3
-- **Outcome:** success | failure | partial | skipped
-- **Approved By:** autonomous | owner:[name]
-- **Notes:** Any relevant detail or error
----
 ```
+entry_id:       [monotonic integer, zero-padded to 6 digits]
+timestamp:      [ISO-8601 UTC]
+action:         [string — exact description of action taken]
+tier:           [🟢 autonomous | 🟡 notify-owner | 🔴 human-required]
+gate_results:
+  IAI-G1:       [PASS | FAIL:<FAILURE_MODE>]
+  IAI-G2:       [PASS | FAIL:<FAILURE_MODE> | N/A]
+  IAI-G3:       [PASS | FAIL:CREDENTIAL_LEAK_DETECTED]
+prev_digest:    [HMAC-SHA256 of prior entry | GENESIS for entry 000001]
+entry_digest:   [HMAC-SHA256 of this entry's canonical fields]
+human_ratified: [true | false]
+notes:          [optional]
+```
+
+**Hard invariants:**
+- `IAI-G3` (credential isolation) is **always** evaluated — cannot be `N/A`.
+- `tier: 🔴` entries must carry `human_ratified: true` before action is populated.
+- `entry_id` is monotonic and never reused.
+- Retroactive edits are prohibited. Corrections are forward amendments only (CVR).
+
+See `AGENT_LOG.md` for the live ledger beginning at ENTRY-000001 (genesis).
 
 ---
 

@@ -26,6 +26,14 @@ This repository is powered by **ADAAD-Agent** — an autonomous AI agent that ha
 | [`MEMORY.md`](./MEMORY.md) | Agent memory and state architecture |
 | [`SECURITY.md`](./SECURITY.md) | Security policies for agent operations |
 
+### Constitutional Governance (ADAAD v9.77.1)
+
+| Doc | Purpose |
+|-----|---------|
+| [`GOVERNANCE.md`](./GOVERNANCE.md) | Constitutional subordination contract — ADAAD HUMAN-0 authority model |
+| [`MCP_REGISTRY.md`](./MCP_REGISTRY.md) | Authoritative MCP server registry — Gate IAI-G2 source of truth |
+| [`AGENT_LOG.md`](./AGENT_LOG.md) | HMAC-chained append-only audit ledger — all agent actions |
+
 ---
 
 ## 🚀 Getting Started

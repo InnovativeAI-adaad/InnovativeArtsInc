@@ -51,7 +51,33 @@ dev:
 
 ---
 
-## 4. Secret Scanning
+## 4. Secret Scanning & Gate IAI-G3 Credential Isolation
+
+> **Constitutional hard dependency — SPEC-IAI-001 · Gate IAI-G3 · ADAAD v9.77.1**
+
+### Gate IAI-G3 — Always-On Credential Isolation
+
+Gate IAI-G3 is a **constitutional invariant**. It cannot be disabled, bypassed, or
+suspended by any agent tier, including 🟢 fully autonomous operations.
+
+**What it checks:** Every agent output surface — MCP payloads, workflow artifacts,
+`AGENT_LOG.md` entries, commit messages, PR bodies, issue comments — is scanned
+for known credential token patterns before emission.
+
+**Failure mode:** `CREDENTIAL_LEAK_DETECTED` → hard abort, quarantine artifact,
+alert HUMAN-0. No partial output is permitted.
+
+**Patterns that trigger hard abort (non-exhaustive):**
+```
+github_pat_*          GitHub PAT (fine-grained)
+ghp_*                 GitHub PAT (classic)
+sk-ant-*              Anthropic API key
+gsk_*                 Groq API key
+-----BEGIN * KEY----  PEM private key block
+*_SECRET*             Generic secret identifier
+```
+
+### GitHub Secret Scanning (repo-level)
 
 - GitHub Secret Scanning is **enabled** on this repository.
 - Any accidental commit of a secret should be treated as a breach:
@@ -59,6 +85,7 @@ dev:
   2. Generate a new credential.
   3. Use `git filter-repo` to purge the commit from history.
   4. Force-push and notify all collaborators.
+  5. Log the incident in `AGENT_LOG.md` as a `🔴` entry with `human_ratified: true`.
 
 ---
 
