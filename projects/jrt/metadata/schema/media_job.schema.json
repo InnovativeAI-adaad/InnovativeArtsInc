@@ -229,6 +229,50 @@
             "revise",
             "block"
           ]
+        },
+        "similarity_to_manifest_max": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1,
+          "description": "Maximum similarity score observed when compared against track manifest references."
+        },
+        "uniqueness_gate_threshold": {
+          "type": "number",
+          "const": 0.7,
+          "description": "Guardrail threshold used for uniqueness gating."
+        },
+        "chaos_variable_applied": {
+          "type": "boolean",
+          "description": "Whether a chaos variable was applied to reduce similarity risk."
+        },
+        "chaos_variable_description": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Description of the chaos variable intervention applied during generation."
+        },
+        "manifest_reference": {
+          "type": "object",
+          "description": "Manifest lookup metadata from projects/jrt/metadata/track_manifest.json used during scoring.",
+          "additionalProperties": false,
+          "required": [
+            "source",
+            "manifest_id",
+            "manifest_version"
+          ],
+          "properties": {
+            "source": {
+              "type": "string",
+              "const": "projects/jrt/metadata/track_manifest.json"
+            },
+            "manifest_id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "manifest_version": {
+              "type": "string",
+              "minLength": 1
+            }
+          }
         }
       },
       "oneOf": [
@@ -237,8 +281,10 @@
           "required": [
             "novelty_index",
             "similarity_method",
-            "max_similarity_observed",
-            "similarity_guardrail_pass"
+            "similarity_to_manifest_max",
+            "uniqueness_gate_threshold",
+            "chaos_variable_applied",
+            "manifest_reference"
           ]
         },
         {
@@ -249,6 +295,53 @@
             "max_similarity_observed",
             "decision"
           ]
+        }
+      ],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "chaos_variable_applied": {
+                "const": true
+              }
+            },
+            "required": [
+              "chaos_variable_applied"
+            ]
+          },
+          "then": {
+            "required": [
+              "chaos_variable_description"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "similarity_to_manifest_max": {
+                "type": "number",
+                "minimum": 0.7
+              }
+            },
+            "required": [
+              "similarity_to_manifest_max"
+            ]
+          },
+          "then": {
+            "properties": {
+              "chaos_variable_applied": {
+                "const": true
+              },
+              "chaos_variable_description": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "chaos_variable_applied",
+              "chaos_variable_description"
+            ]
+          }
         }
       ]
     }
