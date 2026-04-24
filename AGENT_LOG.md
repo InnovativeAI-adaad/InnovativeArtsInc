@@ -34,6 +34,59 @@ notes:          [optional — error detail, ratification phrase, or audit note]
 - `IAI-G3` is always evaluated — it cannot be `N/A`.
 - `entry_id` is monotonic and never reused.
 
+## Canonical Digest Serialization Rules (SPEC-IAI-004)
+
+Use the following canonical byte payload for `entry_digest` HMAC input:
+
+1. **Field order is fixed** and must be serialized exactly as:
+   - `entry_id`
+   - `timestamp`
+   - `action`
+   - `tier`
+   - `IAI-G1`
+   - `IAI-G2`
+   - `IAI-G3`
+   - `prev_digest`
+   - `human_ratified`
+   - `notes`
+2. **Line format:** `key=value` (no extra spaces).
+3. **Newline rule:** LF (`\n`) only, including one trailing LF at end of payload.
+4. **Unicode rule:** normalize each value to NFC, then UTF-8 encode.
+5. **Digest method:** `entry_digest = HMAC-SHA256(key="approved, devadaad", message=<canonical_payload_bytes>)` rendered as lowercase hex.
+
+Canonical payload template:
+
+```text
+entry_id=<value>
+timestamp=<value>
+action=<value>
+tier=<value>
+IAI-G1=<value>
+IAI-G2=<value>
+IAI-G3=<value>
+prev_digest=<value>
+human_ratified=<value>
+notes=<value>
+```
+
+## Append Procedure (ENTRY-000002+)
+
+1. Read the most recent entry in this file and copy its `entry_digest`.
+2. Set new entry `prev_digest` equal to that copied digest **exactly** (byte-for-byte text match).
+3. Build canonical payload using the rules above for the new entry.
+4. Compute new `entry_digest` with HMAC-SHA256 and append the new entry.
+5. Re-run chain validation before and after write.
+
+Validation reference location for operators: `pipelines/validate_agent_log_chain.py`.
+
+## Failure Handling (INV_CHAIN Hard-Abort)
+
+If validation detects a mismatch (bad `prev_digest`, bad `entry_digest`, missing entry, or non-monotonic `entry_id`):
+- classify as `INV_CHAIN`;
+- **hard abort immediately** (no additional writes to `AGENT_LOG.md`);
+- open a `tier: 🔴` incident entry only after human ratification and after chain state is preserved for forensics;
+- require HUMAN-0 remediation approval before any further append operation.
+
 ---
 
 ## Log Entries
@@ -51,7 +104,7 @@ gate_results:
   IAI-G2:       N/A
   IAI-G3:       PASS
 prev_digest:    GENESIS
-entry_digest:   [to be computed by runtime HMAC engine on first live execution]
+entry_digest:   f6c47744604307abfe04ac10327e57bc1242f5f2d5bee1d1d314b0ad4017b43e
 human_ratified: true
 notes:          Genesis entry. Chain begins here. All subsequent entries must reference this entry_digest as their prev_digest. MutationAgent authored; HUMAN-0 ratified via session directive "approved, devadaad".
 ```
