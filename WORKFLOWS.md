@@ -103,38 +103,39 @@ rollback:
 ### 🎵 WF-005 · Music Catalog Update (InnovativeArts)
 
 **Trigger:** New files pushed to `projects/jrt/audio/` or `projects/jrt/metadata/`  
-**Level:** 🟡 2  
+**Level:** 🟡 2 (highest canonical step tier: L2 via `generate_metadata`, `catalog_music`, `tag_audio`)  
 
 ```yaml
 steps:
   1. read_repo            # Detect new files under projects/jrt/audio and projects/jrt/metadata
      owner: MediaAgent
-  2. sync_metadata_index  # Sync/update metadata index from projects/jrt/metadata before ingest
+     notes:
+       - Sync/update metadata index from projects/jrt/metadata before ingest
+       - Ensure each audio asset has a matching metadata file before ingest
+  2. generate_metadata    # Normalize and validate ingest metadata package
      owner: MediaAgent
-  3. validate_ingest_tree # Ensure each audio asset has a matching metadata file before ingest
+     notes:
+       - Require planned schemas:
+         - projects/jrt/metadata/schema/track.schema.json
+         - projects/jrt/metadata/schema/provenance.schema.json
+         - projects/jrt/metadata/schema/ingest-summary.schema.json
+       - If any schema is missing, block ingest to prevent orphan assets
+  3. catalog_music        # Extract and store track metadata
      owner: MediaAgent
-  4. verify_schema_links  # Require planned schemas:
-                          # - projects/jrt/metadata/schema/track.schema.json
-                          # - projects/jrt/metadata/schema/provenance.schema.json
-                          # - projects/jrt/metadata/schema/ingest-summary.schema.json
-                          # If any schema is missing, block ingest to prevent orphan assets
+  4. tag_audio            # Apply ID3 tags if missing
      owner: MediaAgent
-  5. catalog_music        # Extract and store track metadata
-     owner: MediaAgent
-  6. tag_audio            # Apply ID3 tags if missing
-     owner: MediaAgent
-  7. package_rollout      # Build rollout package for downstream distribution
-     owner: DeploymentAgent
-  8. update_provenance    # Write source lineage and audio fingerprint/provenance references
+  5. generate_metadata    # Finalize and persist ingest artifacts
      owner: IPAgent
-  9. write_artifacts      # Required per run:
-                          # - update track manifest
-                          # - update provenance/log
-                          # - append ingest summary entry
-     owner: IPAgent
- 10. create_issue         # "New tracks added: [list]"
+     notes:
+       - Build rollout package for downstream distribution
+       - Write source lineage and audio fingerprint/provenance references
+       - Required per run:
+         - update track manifest
+         - update provenance/log
+         - append ingest summary entry
+  6. create_issue         # "New tracks added: [list]"
      owner: MediaAgent
- 11. write_agent_log      # Record catalog update and artifact paths
+  7. write_agent_log      # Record catalog update and artifact paths
      owner: MediaAgent
 
 rollback:
