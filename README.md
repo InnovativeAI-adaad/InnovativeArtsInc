@@ -56,3 +56,14 @@ More setup instructions coming as the project develops.
 ---
 
 *Powered by ADAAD-Agent | InnovativeAI-adaad © 2026*
+
+## 🏗️ Sovereign Ledger Production Engine
+
+The repository now includes a production scaffold for the **Red Dirt Revelation: The Sovereign Ledger** initiative:
+
+- `core/` for ADAAD engine modules and agent logic
+- `projects/jrt/` for audio, lyrics, metadata, visuals, and rollout assets
+- `registry/` for version/provenance state
+- `pipelines/` for ingestion and release automation scripts
+
+Use `./init_engine.sh` to re-create the baseline structure in fresh environments.

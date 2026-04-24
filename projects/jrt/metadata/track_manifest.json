@@ -1,0 +1,18 @@
+{
+  "project": "Red Dirt Revelation: The Sovereign Ledger",
+  "architect": "Dustin L. Reid",
+  "artist": "JRT",
+  "tracks": [
+    {
+      "id": "JRT-SL-001",
+      "title": "MIGRAINE SUNDAY",
+      "version": "1.0",
+      "status": "finalized",
+      "assets": {
+        "audio": "projects/jrt/audio/suno_exports/migraine_sunday_v4.5.mp3",
+        "lyrics": "projects/jrt/lyrics/sovereign_ledger/migraine_sunday.md"
+      },
+      "tags": ["industrial gospel", "red dirt", "cane-metronome"]
+    }
+  ]
+}
