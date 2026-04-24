@@ -5,6 +5,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import json
+import logging
 import os
 from dataclasses import dataclass
 from datetime import datetime, timezone
@@ -15,6 +16,7 @@ from uuid import uuid4
 from core.agents.execution_policy import LEVEL_3_ACTIONS
 
 ACTION_TRAIL_KEY_ENV = "ADAAD_GOVERNANCE_HMAC_KEY"
+LOGGER = logging.getLogger(__name__)
 
 
 class GovernanceError(ValueError):
@@ -259,11 +261,18 @@ class GovernanceControlPlane:
         if not path.exists():
             return []
         rows: list[dict[str, Any]] = []
+        skipped_malformed_records = 0
         for raw in path.read_text(encoding="utf-8").splitlines():
             raw = raw.strip()
             if not raw:
                 continue
-            rows.append(json.loads(raw))
+            try:
+                rows.append(json.loads(raw))
+            except json.JSONDecodeError:
+                skipped_malformed_records += 1
+                continue
+        if skipped_malformed_records:
+            LOGGER.debug("Skipped %d malformed JSONL record(s) from %s", skipped_malformed_records, path)
         if max_entries is None:
             return rows
         return rows[-max_entries:]
@@ -278,8 +287,13 @@ class GovernanceControlPlane:
         if not self.incidents_dir.exists():
             return []
         results: list[dict[str, Any]] = []
+        skipped_incident_files = 0
         for path in sorted(self.incidents_dir.glob("*.json"))[-max_entries:]:
-            incident = json.loads(path.read_text(encoding="utf-8"))
+            try:
+                incident = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                skipped_incident_files += 1
+                continue
             results.append(
                 {
                     "incident_id": incident.get("incident_id"),
@@ -288,14 +302,21 @@ class GovernanceControlPlane:
                     "path": str(path),
                 }
             )
+        if skipped_incident_files:
+            LOGGER.debug("Skipped %d malformed incident file(s) in %s", skipped_incident_files, self.incidents_dir)
         return results
 
     def _read_similarity_audits(self, *, max_entries: int) -> list[dict[str, Any]]:
         if not self.similarity_audit_dir.exists():
             return []
         results: list[dict[str, Any]] = []
+        skipped_audit_files = 0
         for path in sorted(self.similarity_audit_dir.glob("*.json"))[-max_entries:]:
-            payload = json.loads(path.read_text(encoding="utf-8"))
+            try:
+                payload = json.loads(path.read_text(encoding="utf-8"))
+            except (OSError, json.JSONDecodeError):
+                skipped_audit_files += 1
+                continue
             results.append(
                 {
                     "job_id": payload.get("job_id"),
@@ -304,6 +325,8 @@ class GovernanceControlPlane:
                     "path": str(path),
                 }
             )
+        if skipped_audit_files:
+            LOGGER.debug("Skipped %d malformed similarity audit file(s) in %s", skipped_audit_files, self.similarity_audit_dir)
         return results
 
     @staticmethod
