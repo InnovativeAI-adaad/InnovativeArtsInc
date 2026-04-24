@@ -110,7 +110,7 @@ This document defines the configuration, identity, permissions, and behavioral r
 
 - Agent short-term state is stored per-run in ephemeral context.
 - Long-term memory is persisted to `AGENT_LOG.md` and/or a connected database.
-- Project-level knowledge is sourced from files in `docs/` and this manifest.
+- Project-level knowledge is sourced from root governance/agent docs (`AGENT.md`, `AUTONOMY.md`, `WORKFLOWS.md`, `TOOLS.md`, `MCP_SERVERS.md`, `SECURITY.md`, `README.md`) plus implementation-state paths under `pipelines/` and `projects/jrt/metadata/`.
 - See `MEMORY.md` for full memory architecture.
 
 ---
