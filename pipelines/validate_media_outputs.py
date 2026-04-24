@@ -406,23 +406,64 @@ def _stage_requires_generation_fields(stage: str) -> bool:
 def _validate_generation_config(config: Any) -> None:
     if not isinstance(config, dict):
         raise ValueError("generation_config must be an object")
-    allowed = {"model_id", "prompt_template_version", "seed", "creativity_profile", "style_constraints"}
+    allowed = {
+        "model_id",
+        "model_version",
+        "prompt_template_version",
+        "seed",
+        "random_seed",
+        "creativity_profile",
+        "style_constraints",
+        "style_dna_fingerprint",
+        "style_dna_fingerprint_version",
+        "planning_strategy_id",
+    }
     extras = set(config.keys()) - allowed
     if extras:
         raise ValueError(f"generation_config has unexpected fields: {sorted(extras)}")
-    missing = [field for field in ("model_id", "prompt_template_version", "seed", "creativity_profile", "style_constraints") if field not in config]
-    if missing:
-        raise ValueError(f"generation_config missing required fields: {missing}")
+
+    canonical_required = {
+        "model_version",
+        "prompt_template_version",
+        "random_seed",
+        "creativity_profile",
+        "style_constraints",
+        "style_dna_fingerprint",
+        "style_dna_fingerprint_version",
+        "planning_strategy_id",
+    }
+    legacy_required = {
+        "model_id",
+        "prompt_template_version",
+        "seed",
+        "creativity_profile",
+        "style_constraints",
+    }
+    has_canonical = canonical_required.issubset(config)
+    has_legacy = legacy_required.issubset(config)
+    if not has_canonical and not has_legacy:
+        raise ValueError(
+            "generation_config must match canonical or legacy shape"
+        )
 
     model_id = config.get("model_id")
-    if not isinstance(model_id, str) or not model_id:
+    if model_id is not None and (not isinstance(model_id, str) or not model_id):
         raise ValueError("generation_config.model_id must be a non-empty string")
+    model_version = config.get("model_version")
+    if model_version is not None and (not isinstance(model_version, str) or not model_version):
+        raise ValueError("generation_config.model_version must be a non-empty string")
     prompt_template_version = config.get("prompt_template_version")
     if not isinstance(prompt_template_version, str) or not prompt_template_version:
         raise ValueError("generation_config.prompt_template_version must be a non-empty string")
-    seed = config.get("seed")
-    if not isinstance(seed, (int, str)) or (isinstance(seed, str) and not seed):
-        raise ValueError("generation_config.seed must be an integer or non-empty string")
+
+    if "seed" in config:
+        seed = config.get("seed")
+        if not isinstance(seed, (int, str)) or (isinstance(seed, str) and not seed):
+            raise ValueError("generation_config.seed must be an integer or non-empty string")
+    if "random_seed" in config:
+        random_seed = config.get("random_seed")
+        if not isinstance(random_seed, (int, str)) or (isinstance(random_seed, str) and not random_seed):
+            raise ValueError("generation_config.random_seed must be an integer or non-empty string")
 
     creativity_profile = config.get("creativity_profile")
     if isinstance(creativity_profile, str):
@@ -451,6 +492,19 @@ def _validate_generation_config(config: Any) -> None:
         raise ValueError("generation_config.style_constraints must be a non-empty array of strings")
     if not all(isinstance(item, str) and item for item in style_constraints):
         raise ValueError("generation_config.style_constraints must contain only non-empty strings")
+
+    if "style_dna_fingerprint" in config:
+        style_dna_fingerprint = config.get("style_dna_fingerprint")
+        if not isinstance(style_dna_fingerprint, str) or not style_dna_fingerprint:
+            raise ValueError("generation_config.style_dna_fingerprint must be a non-empty string")
+    if "style_dna_fingerprint_version" in config:
+        style_dna_fingerprint_version = config.get("style_dna_fingerprint_version")
+        if not isinstance(style_dna_fingerprint_version, str) or not style_dna_fingerprint_version:
+            raise ValueError("generation_config.style_dna_fingerprint_version must be a non-empty string")
+    if "planning_strategy_id" in config:
+        planning_strategy_id = config.get("planning_strategy_id")
+        if not isinstance(planning_strategy_id, str) or not planning_strategy_id:
+            raise ValueError("generation_config.planning_strategy_id must be a non-empty string")
 
 
 def _validate_uniqueness_report(report: Any) -> None:

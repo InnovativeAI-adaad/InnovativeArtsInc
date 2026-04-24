@@ -155,6 +155,14 @@
           "type": "string",
           "minLength": 1
         },
+        "style_dna_fingerprint_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "planning_strategy_id": {
+          "type": "string",
+          "minLength": 1
+        },
         "model_id": {
           "type": "string",
           "minLength": 1
@@ -181,7 +189,9 @@
             "random_seed",
             "creativity_profile",
             "style_constraints",
-            "style_dna_fingerprint"
+            "style_dna_fingerprint",
+            "style_dna_fingerprint_version",
+            "planning_strategy_id"
           ]
         },
         {
