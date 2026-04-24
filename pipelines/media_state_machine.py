@@ -1,26 +1,38 @@
 """Media job state machine with strict transition validation.
 
 Stages are linear and must progress in order:
-  draft_lyrics -> refined_lyrics -> prompt_packaged -> audio_generated
-  -> audio_verified -> metadata_finalized -> provenance_written
-  -> rollout_packaged
+  draft_lyrics -> refined_lyrics -> prompt_packaged -> generation_strategized
+  -> audio_generated -> audio_verified -> metadata_finalized
+  -> provenance_written -> rollout_packaged
 """
 
 from __future__ import annotations
 
 from copy import deepcopy
 from datetime import datetime, timezone
+from typing import Any
 
 MEDIA_STAGES: tuple[str, ...] = (
     "draft_lyrics",
     "refined_lyrics",
     "prompt_packaged",
+    "generation_strategized",
     "audio_generated",
     "audio_verified",
     "metadata_finalized",
     "provenance_written",
     "rollout_packaged",
 )
+
+ALLOWED_RUNTIME_PAYLOAD_FIELDS_BY_STAGE: dict[str, tuple[str, ...]] = {
+    "generation_strategized": (
+        "model_preset",
+        "temperature",
+        "creativity_controls",
+        "seed_policy",
+        "novelty_threshold",
+    )
+}
 
 _ALLOWED_NEXT_STAGE: dict[str, str] = {
     MEDIA_STAGES[idx]: MEDIA_STAGES[idx + 1]
@@ -34,6 +46,23 @@ class TransitionValidationError(ValueError):
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
+
+
+def _validate_runtime_payload_for_stage(to_stage: str, runtime_payload: dict[str, Any] | None) -> None:
+    required_fields = ALLOWED_RUNTIME_PAYLOAD_FIELDS_BY_STAGE.get(to_stage, ())
+    if not required_fields:
+        return
+
+    if not isinstance(runtime_payload, dict):
+        raise TransitionValidationError(
+            f"runtime_payload must be a dict for stage {to_stage!r}"
+        )
+
+    missing_fields = [field for field in required_fields if runtime_payload.get(field) in (None, "")]
+    if missing_fields:
+        raise TransitionValidationError(
+            f"runtime_payload missing required fields for stage {to_stage!r}: {missing_fields}"
+        )
 
 
 def initialize_media_job_record(job_id: str, actor: str, timestamp: str | None = None) -> dict:
@@ -66,6 +95,7 @@ def transition_media_job(
     to_stage: str,
     actor: str,
     timestamp: str | None = None,
+    runtime_payload: dict[str, Any] | None = None,
 ) -> dict:
     """Apply a legal transition and append status/timestamp/actor to job history.
 
@@ -97,15 +127,19 @@ def transition_media_job(
             f"{current_stage!r} -> {to_stage!r}; expected {expected_next!r}"
         )
 
+    _validate_runtime_payload_for_stage(to_stage, runtime_payload)
+
     new_record = deepcopy(media_job_record)
     new_record["current_stage"] = to_stage
-    new_record.setdefault("transition_log", []).append(
-        {
-            "from_stage": current_stage,
-            "to_stage": to_stage,
-            "status": to_stage,
-            "timestamp": timestamp or _utc_now_iso(),
-            "actor": actor,
-        }
-    )
+    event = {
+        "from_stage": current_stage,
+        "to_stage": to_stage,
+        "status": to_stage,
+        "timestamp": timestamp or _utc_now_iso(),
+        "actor": actor,
+    }
+    if runtime_payload is not None:
+        event["runtime_payload"] = runtime_payload
+
+    new_record.setdefault("transition_log", []).append(event)
     return new_record

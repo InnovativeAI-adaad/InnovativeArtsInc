@@ -2,7 +2,7 @@
 
 Canonical stage order (linear only):
 
-`draft_lyrics -> refined_lyrics -> prompt_packaged -> audio_generated -> audio_verified -> metadata_finalized -> provenance_written -> rollout_packaged`
+`draft_lyrics -> refined_lyrics -> prompt_packaged -> generation_strategized -> audio_generated -> audio_verified -> metadata_finalized -> provenance_written -> rollout_packaged`
 
 ## Allowed transitions
 
@@ -10,7 +10,8 @@ Canonical stage order (linear only):
 |---|---|
 | `draft_lyrics` | `refined_lyrics` |
 | `refined_lyrics` | `prompt_packaged` |
-| `prompt_packaged` | `audio_generated` |
+| `prompt_packaged` | `generation_strategized` |
+| `generation_strategized` | `audio_generated` |
 | `audio_generated` | `audio_verified` |
 | `audio_verified` | `metadata_finalized` |
 | `metadata_finalized` | `provenance_written` |
@@ -23,6 +24,16 @@ Canonical stage order (linear only):
 - Backward moves are rejected.
 - Skipping intermediate stages is rejected.
 - Unknown stages are rejected.
+
+## Runtime payload requirements
+
+When transitioning to `generation_strategized`, runtime payload must include:
+
+- `model_preset`
+- `temperature`
+- `creativity_controls`
+- `seed_policy`
+- `novelty_threshold`
 
 ## Media job record requirement
 
