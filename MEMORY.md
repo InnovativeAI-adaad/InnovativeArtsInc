@@ -50,7 +50,7 @@ branches:
   dev: active development
   staging: pre-production testing
   agent/*: agent-created branches
-  docs: auto-generated documentation
+  docs: documentation-focused branch (if present)
 
 protected_branches:
   - main
@@ -76,7 +76,7 @@ active:
   - ngrok (tunneling)
   - Gravatar API
 
-planned:
+roadmap_planned:
   - Spotify API
   - Stripe
   - Vercel

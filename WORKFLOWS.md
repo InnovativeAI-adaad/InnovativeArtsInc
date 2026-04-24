@@ -246,3 +246,5 @@ Every workflow execution appends to `AGENT_LOG.md`:
 ---
 
 *Last updated by: Dustin L. Reid | Auto-maintained by ADAAD-Agent (Level 1)*
+
+*Changelog: Terminology normalization — verified workflow step names match `AUTONOMY.md` §1 canonical action identifiers.*
