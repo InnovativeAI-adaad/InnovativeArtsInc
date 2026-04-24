@@ -1,0 +1,64 @@
+{
+  "genre_blend": {
+    "max_components": 3,
+    "banned_combinations": [
+      ["nursery", "horror"]
+    ]
+  },
+  "mood_arc": {
+    "allowed": [
+      "uplifting",
+      "reflective",
+      "melancholic",
+      "urgent",
+      "triumphant",
+      "introspective",
+      "playful",
+      "dark"
+    ]
+  },
+  "lyrical_boundaries": {
+    "max_explicitness": 0.6,
+    "blocked_terms": [
+      "hate_speech",
+      "self_harm_instruction"
+    ]
+  },
+  "tempo_window": {
+    "min_allowed": 60,
+    "max_allowed": 180
+  },
+  "key_window": {
+    "allowed_keys": [
+      "C",
+      "C#",
+      "D",
+      "D#",
+      "E",
+      "F",
+      "F#",
+      "G",
+      "G#",
+      "A",
+      "A#",
+      "B"
+    ]
+  },
+  "override_tiers": {
+    "safe": {
+      "tier": 1,
+      "approval_model": "Autonomous",
+      "autonomy_actions": ["read_repo", "run_tests"]
+    },
+    "standard": {
+      "tier": 2,
+      "approval_model": "Log + notify owner",
+      "autonomy_actions": ["commit_files", "open_pr_draft"]
+    },
+    "elevated": {
+      "tier": 3,
+      "approval_model": "Human approval required",
+      "autonomy_actions": ["deploy_production", "publish_release"]
+    }
+  }
+}
