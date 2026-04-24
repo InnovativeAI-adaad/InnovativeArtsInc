@@ -9,6 +9,7 @@ import time
 from pathlib import Path
 from typing import Any
 
+from core.gatekeeper.abort import HardAbortError, hard_abort
 from core.agents.ip_agent.hasher import append_provenance_entries
 from core.agents.ip_agent.telemetry import append_stage_metric
 
@@ -16,6 +17,7 @@ from core.agents.ip_agent.telemetry import append_stage_metric
 _DEF_NAME = "ip_agent"
 _STAGE_RUN = "ip_agent.run"
 _STAGE_UNIQUENESS_AUDIT = "ip_agent.uniqueness_audit"
+_SIMILARITY_AUDIT_DIR = Path("registry/similarity_audits")
 
 
 def info() -> dict:
@@ -40,6 +42,28 @@ def _record_stage(
         duration_ms=int((time.perf_counter() - started_at) * 1000),
         result=result,
         fitness_score=fitness_score,
+    )
+
+
+def _emit_uniqueness_audit_stage(payload: dict[str, Any], *, job_id: str) -> None:
+    uniqueness_validation_time_ms = payload.get("uniqueness_validation_time_ms")
+    novelty_index = payload.get("novelty_index")
+    similarity_guardrail_pass = payload.get("similarity_guardrail_pass")
+
+    if uniqueness_validation_time_ms is None and novelty_index is None and similarity_guardrail_pass is None:
+        return
+
+    duration_ms = int(uniqueness_validation_time_ms or 0)
+    fitness_score = float(novelty_index) if novelty_index is not None else 0.0
+    append_stage_metric(
+        job_id=job_id,
+        stage=_STAGE_UNIQUENESS_AUDIT,
+        duration_ms=duration_ms,
+        result="success" if similarity_guardrail_pass is not False else "failure:similarity_guardrail_failed",
+        fitness_score=fitness_score,
+        uniqueness_validation_time_ms=duration_ms,
+        novelty_index=novelty_index,
+        similarity_guardrail_pass=similarity_guardrail_pass,
     )
 
 
@@ -303,14 +327,48 @@ def run(input=None) -> dict:
             "stage_result_code": "failure:missing_required_ids",
         }
 
+    deny_reason_code = payload.get("deny_reason_code")
+    if payload.get("deny_level3_action") or deny_reason_code:
+        reason_code = str(deny_reason_code or "LEVEL3_POLICY_DENIED")
+        context = {
+            "policy_version": payload.get("policy_version", "1.0.0"),
+            "job_id": payload["job_id"],
+            "track_id": track_id,
+            "provenance_id": payload.get("provenance_id") or payload["job_id"],
+            "agent_log_path": payload.get("agent_log_path", "AGENT_LOG.md"),
+        }
+        try:
+            hard_abort("level3.production_render_registry_write", reason_code, context)
+        except HardAbortError as exc:
+            _record_stage(
+                job_id=payload["job_id"],
+                stage=_STAGE_RUN,
+                started_at=started_at,
+                result=exc.failure["stage_result_code"],
+                fitness_score=0.0,
+            )
+            return exc.failure
+
     _emit_uniqueness_audit_stage(payload, job_id=payload["job_id"])
 
     try:
-        audit_result = run_similarity_audit(payload)
         provenance_refs = list(payload.get("provenance_refs") or [])
-        provenance_refs.append(audit_result["audit_artifact_path"])
+        has_similarity_inputs = (
+            _load_candidate_render_metadata(payload) is not None
+            or _load_candidate_audio_fingerprint(payload) is not None
+        )
+        if has_similarity_inputs:
+            audit_result = run_similarity_audit(payload)
+            provenance_refs.append(audit_result["audit_artifact_path"])
+            provenance_targets = [*output_files, audit_result["audit_artifact_path"]]
+        else:
+            audit_result = {
+                "decision": "pass",
+                "max_similarity": 0.0,
+                "audit_artifact_path": None,
+            }
+            provenance_targets = list(output_files)
 
-        provenance_targets = [*output_files, audit_result["audit_artifact_path"]]
         entries = append_provenance_entries(
             provenance_targets,
             job_id=payload["job_id"],
