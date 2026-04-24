@@ -105,3 +105,47 @@ def test_read_only_audit_explorer_returns_expected_sources(tmp_path: Path, monke
     assert len(view["provenance_events"]) == 2
     assert view["incidents"][0]["incident_id"] == "inc-1"
     assert view["similarity_audits"][0]["decision"] == "pass"
+
+
+def test_read_jsonl_skips_malformed_lines(tmp_path: Path) -> None:
+    path = tmp_path / "events.jsonl"
+    path.write_text('{"event_id":"ok-1"}\n{malformed json\n{"event_id":"ok-2"}\n', encoding="utf-8")
+
+    records = GovernanceControlPlane._read_jsonl(path, max_entries=None)
+
+    assert [record["event_id"] for record in records] == ["ok-1", "ok-2"]
+
+
+def test_audit_explorer_skips_malformed_incident_and_similarity_files(tmp_path: Path, monkeypatch) -> None:
+    monkeypatch.setenv("ADAAD_GOVERNANCE_HMAC_KEY", "gov-key")
+    provenance_path = tmp_path / "provenance.jsonl"
+    _seed_jsonl(provenance_path, [{"event_id": "p1"}])
+
+    incidents_dir = tmp_path / "incidents"
+    incidents_dir.mkdir(parents=True)
+    (incidents_dir / "i1.json").write_text(
+        json.dumps({"incident_id": "inc-1", "status": "open", "timestamp": "2026-04-20T00:00:00+00:00"}),
+        encoding="utf-8",
+    )
+    (incidents_dir / "i2.json").write_text("{malformed incident", encoding="utf-8")
+
+    similarity_dir = tmp_path / "similarity"
+    similarity_dir.mkdir(parents=True)
+    (similarity_dir / "s1.json").write_text(
+        json.dumps({"job_id": "job-1", "decision": "pass", "max_similarity": 0.04}),
+        encoding="utf-8",
+    )
+    (similarity_dir / "s2.json").write_text("{malformed similarity", encoding="utf-8")
+
+    plane = GovernanceControlPlane(
+        ratification_store=tmp_path / "ratifications.jsonl",
+        action_trail_store=tmp_path / "trail.jsonl",
+        provenance_log_path=provenance_path,
+        incidents_dir=incidents_dir,
+        similarity_audit_dir=similarity_dir,
+    )
+
+    view = plane.read_audit_explorer(actor=Actor(actor_id="reviewer:bob", role="reviewer"), max_entries=10)
+
+    assert [incident["incident_id"] for incident in view["incidents"]] == ["inc-1"]
+    assert [audit["job_id"] for audit in view["similarity_audits"]] == ["job-1"]
