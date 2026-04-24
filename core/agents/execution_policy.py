@@ -11,6 +11,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from core.gatekeeper.abort import hard_abort
+from core.gatekeeper.ratification import RatificationValidationError, validate_ratification
 
 
 CONFIG_PATH = Path("projects/jrt/metadata/agent_runtime_config.json")

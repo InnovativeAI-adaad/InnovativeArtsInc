@@ -320,6 +320,53 @@ Use this checklist for PR review when docs in scope are changed:
 
 ---
 
+### 🎧 WF-010 · AR Demo Orchestration & Signing Gate
+
+**Trigger:** New demo payload posted to `services/ar_orchestrator` ingestion endpoint or queued event from campaign intake.  
+**Level:** 🔴 3 (contains Level 3-equivalent signing ratification gate).
+
+```yaml
+steps:
+  1. read_repo                    # L1
+  2. generate_metadata            # L2
+     owner: AROrchestrator
+     notes:
+       - Ingest demo payload: audio_demo_url + artist_profile + campaign_context
+       - Fail closed on missing required metadata fields
+  3. generate_metadata            # L2
+     owner: AROrchestrator
+     notes:
+       - Extract audio + metadata vectors and compute novelty/risk/confidence scoring
+       - Emit structured score breakdown and decision reasons
+  4. review_code                  # L2
+     owner: AROrchestrator
+     notes:
+       - Apply deterministic policy states only:
+         - reject
+         - revise
+         - escalate_to_human
+         - approve_for_release_prep
+       - Low confidence must escalate_to_human
+  5. deploy_production            # L3-equivalent gate
+     owner: Gatekeeper
+     notes:
+       - For approve_for_release_prep, require ratification scope `release_signoff`
+       - Validate ratification with `core/gatekeeper/ratification.py`
+       - Missing/invalid ratification blocks signing path
+  6. write_agent_log              # L1
+     owner: AROrchestrator
+     notes:
+       - Persist structured artifact with scores, decision, reasons
+       - Write immutable provenance reference to registry/provenance_log.jsonl
+
+rollback:
+  - Missing artist/campaign metadata: reject payload and stop processing (fail-closed)
+  - Low-confidence prediction: escalate_to_human and block release-prep approval
+  - Missing/invalid ratification for signing path: block approval and emit gate failure artifact
+```
+
+---
+
 ## 6. Workflow Logging
 
 Every workflow execution appends to `AGENT_LOG.md`:
@@ -333,3 +380,4 @@ Every workflow execution appends to `AGENT_LOG.md`:
 *Last updated by: Dustin L. Reid | Auto-maintained by ADAAD-Agent (Level 1)*
 
 *Changelog: Terminology normalization — verified workflow step names match `AUTONOMY.md` §1 canonical action identifiers.*
+
