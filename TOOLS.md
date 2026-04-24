@@ -2,6 +2,7 @@
 
 > Part of the **InnovativeArtsInc** Agent Documentation Suite  
 > All tools available to ADAAD-Agent across integrations and runtimes.
+> **Tier source of truth:** `AUTONOMY.md` §1 “Canonical Autonomy Matrix” is normative; if tool tiers conflict across docs, follow `AUTONOMY.md`.
 
 ---
 
@@ -26,10 +27,10 @@
 | Tool                | Source       | Level | Description                            |
 |--------------------|-------------|-------|----------------------------------------|
 | `generate_code`     | Claude API   | 🟡 2  | Generate new code from natural language|
-| `review_code`       | Claude API   | 🟢 1  | Analyze diff and suggest improvements  |
+| `review_code`       | Claude API   | 🟡 2  | Analyze diff and suggest improvements  |
 | `run_tests`         | GitHub Actions| 🟢 1 | Trigger test suite, return results     |
 | `lint_code`         | GitHub Actions| 🟢 1 | Run ESLint / Prettier / language linter|
-| `explain_code`      | Claude API   | 🟢 1  | Explain what a file or function does   |
+| `explain_code`      | Claude API   | 🟡 2  | Explain what a file or function does   |
 | `refactor_code`     | Claude API   | 🟡 2  | Refactor with explanation              |
 
 ---
@@ -89,9 +90,9 @@
 | Tool                  | Source       | Level | Description                          |
 |----------------------|-------------|-------|--------------------------------------|
 | `catalog_music`       | Custom       | 🟡 2  | Catalog tracks, albums, metadata     |
-| `generate_metadata`   | Claude API   | 🟢 1  | Generate descriptions for tracks     |
+| `generate_metadata`   | Claude API   | 🟡 2  | Generate descriptions for tracks     |
 | `tag_audio`           | Custom       | 🟡 2  | Write ID3 tags to audio files        |
-| `draft_press_release` | Claude API   | 🟢 1  | Write artist/release press copy      |
+| `draft_press_release` | Claude API   | 🟡 2  | Write artist/release press copy      |
 | `generate_lyrics`     | Claude API   | 🟡 2  | Generate song lyrics from brief      |
 
 ---
