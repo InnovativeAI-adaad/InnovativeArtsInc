@@ -6,6 +6,7 @@ import datetime as dt
 import json
 import math
 import time
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -18,12 +19,84 @@ _DEF_NAME = "ip_agent"
 _STAGE_RUN = "ip_agent.run"
 _STAGE_UNIQUENESS_AUDIT = "ip_agent.uniqueness_audit"
 _SIMILARITY_AUDIT_DIR = Path("registry/similarity_audits")
+_DEFAULT_POLICY_PATH = Path("core/agents/ip_agent/config/similarity_policy.v1.json")
+
+
+@dataclass(frozen=True)
+class SimilarityMethodResult:
+    method: str
+    version: str
+    model_id: str | None
+    score: float
+    threshold: float
+    required_for_release_intent: bool
+
+
+@dataclass(frozen=True)
+class SimilarityPolicy:
+    version: str
+    threshold_source: str
+    revise_threshold: float
+    block_threshold: float
+    confidence_floor: float
+    decision_policy: str
+    required_methods_release_intent: set[str]
+    strategy_versions: dict[str, str]
+    strategy_model_ids: dict[str, str | None]
+
+
+class SimilarityStrategy:
+    method = "base"
+
+    def __init__(self, *, version: str, model_id: str | None = None) -> None:
+        self.version = version
+        self.model_id = model_id
+
+    def score(self, candidate: Any, prior: Any) -> float | None:
+        raise NotImplementedError
+
+
+class MetadataSimilarityStrategy(SimilarityStrategy):
+    method = "metadata"
+
+    def score(self, candidate: Any, prior: Any) -> float | None:
+        if candidate is None or prior is None:
+            return None
+        return _jaccard_similarity(candidate, prior)
+
+
+class FingerprintSimilarityStrategy(SimilarityStrategy):
+    method = "fingerprint"
+
+    def score(self, candidate: Any, prior: Any) -> float | None:
+        if candidate is None or prior is None:
+            return None
+
+        left_vec = _to_float_vector(candidate)
+        right_vec = _to_float_vector(prior)
+        if left_vec is not None and right_vec is not None:
+            return _cosine_similarity(left_vec, right_vec)
+        return _jaccard_similarity(candidate, prior)
+
+
+class EmbeddingSimilarityStrategy(SimilarityStrategy):
+    method = "embedding"
+
+    def score(self, candidate: Any, prior: Any) -> float | None:
+        if candidate is None or prior is None:
+            return None
+
+        left_vec = _to_float_vector(candidate)
+        right_vec = _to_float_vector(prior)
+        if left_vec is None or right_vec is None:
+            return None
+        return _cosine_similarity(left_vec, right_vec)
 
 
 def info() -> dict:
     return {
         "name": _DEF_NAME,
-        "version": "0.3.0",
+        "version": "0.4.0",
         "description": "Generates provenance metadata for creative assets.",
     }
 
@@ -155,43 +228,27 @@ def _load_candidate_audio_fingerprint(payload: dict) -> Any:
         return None
 
 
-def _extract_prior_signature(entry: dict) -> tuple[Any, Any]:
+def _load_candidate_embedding(payload: dict) -> Any:
+    if "embedding" in payload:
+        return payload["embedding"]
+    return _load_json_file(payload.get("embedding_path"))
+
+
+def _extract_prior_signature(entry: dict) -> tuple[Any, Any, Any]:
     render_metadata = entry.get("render_metadata")
     audio_fingerprint = entry.get("audio_fingerprint")
+    embedding = entry.get("embedding")
 
-    if render_metadata is None and audio_fingerprint is None:
+    if render_metadata is None and audio_fingerprint is None and embedding is None:
         file_value = entry.get("file")
         if file_value:
             loaded = _load_json_file(file_value)
             if isinstance(loaded, dict):
                 render_metadata = loaded.get("render_metadata")
                 audio_fingerprint = loaded.get("audio_fingerprint")
+                embedding = loaded.get("embedding")
 
-    return render_metadata, audio_fingerprint
-
-
-def _similarity_score(
-    candidate_render_metadata: Any,
-    candidate_audio_fingerprint: Any,
-    prior_render_metadata: Any,
-    prior_audio_fingerprint: Any,
-) -> float:
-    scores: list[float] = []
-
-    if candidate_render_metadata is not None and prior_render_metadata is not None:
-        scores.append(_jaccard_similarity(candidate_render_metadata, prior_render_metadata))
-
-    if candidate_audio_fingerprint is not None and prior_audio_fingerprint is not None:
-        left_vec = _to_float_vector(candidate_audio_fingerprint)
-        right_vec = _to_float_vector(prior_audio_fingerprint)
-        if left_vec is not None and right_vec is not None:
-            scores.append(_cosine_similarity(left_vec, right_vec))
-        else:
-            scores.append(_jaccard_similarity(candidate_audio_fingerprint, prior_audio_fingerprint))
-
-    if not scores:
-        return 0.0
-    return sum(scores) / len(scores)
+    return render_metadata, audio_fingerprint, embedding
 
 
 def _read_provenance_entries(log_path: str) -> list[dict]:
@@ -214,31 +271,133 @@ def _read_provenance_entries(log_path: str) -> list[dict]:
     return entries
 
 
+def _load_similarity_policy(payload: dict) -> SimilarityPolicy:
+    policy_path = Path(str(payload.get("similarity_policy_path") or _DEFAULT_POLICY_PATH))
+    if not policy_path.exists() or not policy_path.is_file():
+        raise ValueError(f"Similarity policy file is missing: {policy_path}")
+    try:
+        raw_policy = json.loads(policy_path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as exc:
+        raise ValueError(f"Similarity policy file is invalid: {policy_path}") from exc
+
+    thresholds = raw_policy.get("thresholds") or {}
+    methods = raw_policy.get("methods") or {}
+    required_methods = {
+        name for name, method_cfg in methods.items() if bool((method_cfg or {}).get("required_for_release_intent"))
+    }
+    strategy_versions = {name: str((cfg or {}).get("version", "unknown")) for name, cfg in methods.items()}
+    strategy_model_ids = {name: (cfg or {}).get("model_id") for name, cfg in methods.items()}
+
+    return SimilarityPolicy(
+        version=str(raw_policy.get("version") or "unknown"),
+        threshold_source=str(policy_path),
+        revise_threshold=float(thresholds.get("revise")),
+        block_threshold=float(thresholds.get("block")),
+        confidence_floor=float(raw_policy.get("confidence_floor", 0.0)),
+        decision_policy=str(raw_policy.get("decision_policy", "max_similarity")),
+        required_methods_release_intent=required_methods,
+        strategy_versions=strategy_versions,
+        strategy_model_ids=strategy_model_ids,
+    )
+
+
+def _is_release_intent(payload: dict) -> bool:
+    if bool(payload.get("release_intent")):
+        return True
+    value = str(payload.get("intent_stage") or payload.get("stage") or "").strip().lower()
+    return value in {"release", "release_intent", "release-intent", "production_release"}
+
+
+def _ensure_release_similarity_inputs(
+    payload: dict,
+    *,
+    policy: SimilarityPolicy,
+    candidate_inputs: dict[str, Any],
+) -> None:
+    if not _is_release_intent(payload):
+        return
+
+    missing = [
+        method for method in sorted(policy.required_methods_release_intent) if candidate_inputs.get(method) is None
+    ]
+    if missing:
+        raise ValueError(
+            "Missing required similarity inputs for release-intent stage: " + ", ".join(missing)
+        )
+
+
+def _build_strategies(policy: SimilarityPolicy) -> list[SimilarityStrategy]:
+    return [
+        MetadataSimilarityStrategy(
+            version=policy.strategy_versions.get("metadata", "unknown"),
+            model_id=policy.strategy_model_ids.get("metadata"),
+        ),
+        FingerprintSimilarityStrategy(
+            version=policy.strategy_versions.get("fingerprint", "unknown"),
+            model_id=policy.strategy_model_ids.get("fingerprint"),
+        ),
+        EmbeddingSimilarityStrategy(
+            version=policy.strategy_versions.get("embedding", "unknown"),
+            model_id=policy.strategy_model_ids.get("embedding"),
+        ),
+    ]
+
+
 def run_similarity_audit(payload: dict) -> dict:
     log_path = str(payload.get("provenance_log_path", "registry/provenance_log.jsonl"))
     job_id = str(payload.get("job_id") or "unknown")
+    policy = _load_similarity_policy(payload)
 
-    candidate_render_metadata = _load_candidate_render_metadata(payload)
-    candidate_audio_fingerprint = _load_candidate_audio_fingerprint(payload)
-    if candidate_render_metadata is None and candidate_audio_fingerprint is None:
+    candidate_inputs = {
+        "metadata": _load_candidate_render_metadata(payload),
+        "fingerprint": _load_candidate_audio_fingerprint(payload),
+        "embedding": _load_candidate_embedding(payload),
+    }
+    _ensure_release_similarity_inputs(payload, policy=policy, candidate_inputs=candidate_inputs)
+
+    if all(value is None for value in candidate_inputs.values()):
         raise ValueError(
-            "Similarity audit requires render metadata and/or audio fingerprint input"
+            "Similarity audit requires render metadata, audio fingerprint, and/or embedding input"
         )
 
     prior_entries = _read_provenance_entries(log_path)
+    strategies = _build_strategies(policy)
+
     max_similarity = 0.0
+    max_method_results: list[SimilarityMethodResult] = []
     most_similar_ref: dict | None = None
 
     for entry in prior_entries:
-        prior_render_metadata, prior_audio_fingerprint = _extract_prior_signature(entry)
-        similarity = _similarity_score(
-            candidate_render_metadata,
-            candidate_audio_fingerprint,
-            prior_render_metadata,
-            prior_audio_fingerprint,
-        )
-        if similarity > max_similarity:
-            max_similarity = similarity
+        prior_render_metadata, prior_audio_fingerprint, prior_embedding = _extract_prior_signature(entry)
+        prior_inputs = {
+            "metadata": prior_render_metadata,
+            "fingerprint": prior_audio_fingerprint,
+            "embedding": prior_embedding,
+        }
+
+        method_scores: list[SimilarityMethodResult] = []
+        for strategy in strategies:
+            score = strategy.score(candidate_inputs.get(strategy.method), prior_inputs.get(strategy.method))
+            if score is None:
+                continue
+            method_scores.append(
+                SimilarityMethodResult(
+                    method=strategy.method,
+                    version=strategy.version,
+                    model_id=strategy.model_id,
+                    score=score,
+                    threshold=policy.block_threshold,
+                    required_for_release_intent=strategy.method in policy.required_methods_release_intent,
+                )
+            )
+
+        if not method_scores:
+            continue
+
+        entry_max_similarity = max(item.score for item in method_scores)
+        if entry_max_similarity > max_similarity:
+            max_similarity = entry_max_similarity
+            max_method_results = method_scores
             most_similar_ref = {
                 "job_id": entry.get("job_id"),
                 "track_id": entry.get("track_id"),
@@ -246,8 +405,8 @@ def run_similarity_audit(payload: dict) -> dict:
                 "sha256": entry.get("sha256"),
             }
 
-    revise_threshold = float(payload.get("similarity_revise_threshold", 0.75))
-    block_threshold = float(payload.get("similarity_block_threshold", 0.9))
+    revise_threshold = policy.revise_threshold
+    block_threshold = policy.block_threshold
 
     if max_similarity >= block_threshold:
         decision = "block"
@@ -255,6 +414,8 @@ def run_similarity_audit(payload: dict) -> dict:
         decision = "revise"
     else:
         decision = "pass"
+
+    confidence = max(0.0, min(1.0, max_similarity))
 
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     artifact_path = _SIMILARITY_AUDIT_DIR / f"{job_id}_{timestamp}.json"
@@ -264,14 +425,32 @@ def run_similarity_audit(payload: dict) -> dict:
         "job_id": job_id,
         "decision": decision,
         "max_similarity": round(max_similarity, 6),
+        "confidence": round(confidence, 6),
+        "confidence_floor": policy.confidence_floor,
         "thresholds": {
             "revise": revise_threshold,
             "block": block_threshold,
         },
+        "threshold_source": policy.threshold_source,
+        "policy": {
+            "version": policy.version,
+            "decision_policy": policy.decision_policy,
+        },
+        "method_results": [
+            {
+                "method": item.method,
+                "method_version": item.version,
+                "model_id": item.model_id,
+                "score": round(item.score, 6),
+                "required_for_release_intent": item.required_for_release_intent,
+            }
+            for item in max_method_results
+        ],
         "most_similar_ref": most_similar_ref,
         "candidate": {
-            "render_metadata": candidate_render_metadata,
-            "audio_fingerprint": candidate_audio_fingerprint,
+            "render_metadata": candidate_inputs["metadata"],
+            "audio_fingerprint": candidate_inputs["fingerprint"],
+            "embedding": candidate_inputs["embedding"],
         },
         "provenance_log_path": log_path,
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
@@ -281,6 +460,8 @@ def run_similarity_audit(payload: dict) -> dict:
     return {
         "decision": decision,
         "max_similarity": max_similarity,
+        "confidence": confidence,
+        "policy_version": policy.version,
         "audit_artifact_path": str(artifact_path),
         "audit_artifact": audit_payload,
     }
@@ -353,10 +534,21 @@ def run(input=None) -> dict:
 
     try:
         provenance_refs = list(payload.get("provenance_refs") or [])
-        has_similarity_inputs = (
-            _load_candidate_render_metadata(payload) is not None
-            or _load_candidate_audio_fingerprint(payload) is not None
-        )
+        policy = _load_similarity_policy(payload)
+        expected_version = payload.get("expected_similarity_policy_version")
+        if expected_version and str(expected_version) != policy.version:
+            raise ValueError(
+                "Similarity policy version drift detected: "
+                f"expected={expected_version} actual={policy.version}"
+            )
+
+        candidate_inputs = {
+            "metadata": _load_candidate_render_metadata(payload),
+            "fingerprint": _load_candidate_audio_fingerprint(payload),
+            "embedding": _load_candidate_embedding(payload),
+        }
+        _ensure_release_similarity_inputs(payload, policy=policy, candidate_inputs=candidate_inputs)
+        has_similarity_inputs = any(value is not None for value in candidate_inputs.values())
         if has_similarity_inputs:
             audit_result = run_similarity_audit(payload)
             provenance_refs.append(audit_result["audit_artifact_path"])
@@ -365,6 +557,8 @@ def run(input=None) -> dict:
             audit_result = {
                 "decision": "pass",
                 "max_similarity": 0.0,
+                "confidence": 0.0,
+                "policy_version": policy.version,
                 "audit_artifact_path": None,
             }
             provenance_targets = list(output_files)
@@ -403,6 +597,8 @@ def run(input=None) -> dict:
             "similarity_audit": {
                 "decision": audit_result["decision"],
                 "max_similarity": audit_result["max_similarity"],
+                "confidence": audit_result.get("confidence", 0.0),
+                "policy_version": audit_result.get("policy_version", policy.version),
             },
             "provenance_refs": provenance_refs,
             "stage_result_code": stage_result_code,

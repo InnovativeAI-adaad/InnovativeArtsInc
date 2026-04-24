@@ -34,6 +34,34 @@ class CheckResult:
     details: str
 
 
+RELEASE_BUNDLE_SCHEMA: dict[str, Any] = {
+    "required_top_level": (
+        "schema_version",
+        "release_id",
+        "title",
+        "artist_name",
+        "created_at",
+        "identifiers",
+        "masters",
+        "stems",
+        "credits",
+        "rights_metadata",
+        "artifacts",
+    ),
+    "required_identifiers": ("isrc", "upc"),
+    "required_artifacts": ("bundle_sha256", "split_sheet_refs"),
+    "required_split_sheet_ref": (
+        "artifact_type",
+        "artifact_id",
+        "storage_uri",
+        "sha256",
+        "signature",
+        "signer",
+        "signed_at",
+    ),
+}
+
+
 def _utc_now() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -193,6 +221,88 @@ def check_lyric_structure(track: dict[str, Any], rules: dict[str, Any], repo_roo
     return CheckResult("lyric_structure", passed, bool(config.get("required", False)), details)
 
 
+def _validate_release_bundle_structure(bundle: dict[str, Any]) -> list[str]:
+    errors: list[str] = []
+    for field in RELEASE_BUNDLE_SCHEMA["required_top_level"]:
+        if field not in bundle:
+            errors.append(f"missing top-level field: {field}")
+
+    identifiers = bundle.get("identifiers")
+    if not isinstance(identifiers, dict):
+        errors.append("identifiers must be an object")
+    else:
+        for key in RELEASE_BUNDLE_SCHEMA["required_identifiers"]:
+            value = identifiers.get(key)
+            if not isinstance(value, str) or not value:
+                errors.append(f"identifiers.{key} must be a non-empty string")
+
+    list_fields = ("masters", "stems", "credits")
+    for field in list_fields:
+        value = bundle.get(field)
+        if not isinstance(value, list) or not value:
+            errors.append(f"{field} must be a non-empty array")
+
+    rights = bundle.get("rights_metadata")
+    if not isinstance(rights, dict) or not rights:
+        errors.append("rights_metadata must be a non-empty object")
+
+    artifacts = bundle.get("artifacts")
+    if not isinstance(artifacts, dict):
+        errors.append("artifacts must be an object")
+    else:
+        for key in RELEASE_BUNDLE_SCHEMA["required_artifacts"]:
+            if key not in artifacts:
+                errors.append(f"artifacts missing required field: {key}")
+        split_sheet_refs = artifacts.get("split_sheet_refs")
+        if not isinstance(split_sheet_refs, list) or not split_sheet_refs:
+            errors.append("artifacts.split_sheet_refs must be a non-empty array")
+        else:
+            for idx, ref in enumerate(split_sheet_refs):
+                if not isinstance(ref, dict):
+                    errors.append(f"split_sheet_refs[{idx}] must be an object")
+                    continue
+                missing = [k for k in RELEASE_BUNDLE_SCHEMA["required_split_sheet_ref"] if not ref.get(k)]
+                if missing:
+                    errors.append(f"split_sheet_refs[{idx}] missing required fields: {missing}")
+
+    return errors
+
+
+def check_release_bundle_structure(track: dict[str, Any], rules: dict[str, Any], repo_root: Path) -> CheckResult:
+    config = rules.get("release_bundle_validation", {})
+    if not config.get("enabled", False):
+        return CheckResult("release_bundle_structure", True, bool(config.get("required", False)), "disabled")
+
+    assets = cast(dict[str, Any], track.get("assets")) if isinstance(track.get("assets"), dict) else {}
+    release_bundle_path = assets.get("release_bundle")
+    if not release_bundle_path:
+        return CheckResult(
+            "release_bundle_structure",
+            False,
+            bool(config.get("required", False)),
+            "missing assets.release_bundle path",
+        )
+
+    bundle_path = _resolve_path(str(release_bundle_path), repo_root)
+    if not bundle_path.exists():
+        return CheckResult(
+            "release_bundle_structure",
+            False,
+            bool(config.get("required", False)),
+            f"release bundle file not found: {release_bundle_path}",
+        )
+
+    try:
+        bundle = _load_json(bundle_path)
+    except ValueError as exc:
+        return CheckResult("release_bundle_structure", False, bool(config.get("required", False)), str(exc))
+
+    errors = _validate_release_bundle_structure(bundle)
+    passed = not errors
+    details = "ok" if passed else "; ".join(errors)
+    return CheckResult("release_bundle_structure", passed, bool(config.get("required", False)), details)
+
+
 def validate_tracks(manifest: dict[str, Any], rules: dict[str, Any], repo_root: Path) -> dict[str, Any]:
     track_results: list[dict[str, Any]] = []
     required_checks = set(rules.get("required_checks", []))
@@ -203,6 +313,7 @@ def validate_tracks(manifest: dict[str, Any], rules: dict[str, Any], repo_root: 
             check_clipping(track, rules),
             check_metadata_completeness(track, rules, repo_root),
             check_lyric_structure(track, rules, repo_root),
+            check_release_bundle_structure(track, rules, repo_root),
         ]
 
         check_payloads = [
