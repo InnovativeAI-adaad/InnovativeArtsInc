@@ -382,6 +382,111 @@
           }
         }
       ]
+    },
+    "trinity_of_the_dirt": {
+      "type": "object",
+      "description": "Creative intent snapshot that records lyric/source context, emotional target, and production palette constraints.",
+      "additionalProperties": false,
+      "required": [
+        "red_couch",
+        "red_crosses",
+        "red_dirt"
+      ],
+      "properties": {
+        "red_couch": {
+          "type": "string",
+          "description": "Lyrics/source descriptor anchoring the narrative and provenance context.",
+          "minLength": 1
+        },
+        "red_crosses": {
+          "type": "object",
+          "description": "Emotion and spiritual intensity calibration for the track.",
+          "additionalProperties": false,
+          "required": [
+            "intensity_score",
+            "notes"
+          ],
+          "properties": {
+            "intensity_score": {
+              "type": "number",
+              "minimum": 0,
+              "maximum": 1,
+              "description": "Normalized emotion/spiritual intensity target from 0.0 to 1.0."
+            },
+            "notes": {
+              "type": "string",
+              "minLength": 1,
+              "description": "Human-readable context for how the intensity target should be interpreted."
+            }
+          }
+        },
+        "red_dirt": {
+          "type": "array",
+          "description": "Production palette descriptors that define the sonic texture.",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "audio_fidelity_verification": {
+      "type": "object",
+      "description": "Audio QA verification block for technical quality and creative alignment.",
+      "additionalProperties": false,
+      "required": [
+        "clipping_check",
+        "stereo_width_check",
+        "vibe_alignment_check",
+        "verified_at"
+      ],
+      "properties": {
+        "clipping_check": {
+          "$ref": "#/$defs/fidelityMetricCheck"
+        },
+        "stereo_width_check": {
+          "$ref": "#/$defs/fidelityMetricCheck"
+        },
+        "vibe_alignment_check": {
+          "$ref": "#/$defs/fidelityVibeCheck"
+        },
+        "verified_at": {
+          "type": "string",
+          "format": "date-time",
+          "description": "UTC timestamp when fidelity verification was completed."
+        }
+      }
+    },
+    "ip_sign_off": {
+      "type": "object",
+      "description": "IP review and publication sign-off metadata.",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "signed_off_by",
+        "signed_off_at"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "approved",
+            "rejected"
+          ]
+        },
+        "signed_off_by": {
+          "type": "string",
+          "minLength": 1
+        },
+        "signed_off_at": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
     }
   },
   "allOf": [
@@ -448,6 +553,63 @@
           }
         }
       }
+    },
+    {
+      "if": {
+        "required": [
+          "ip_sign_off"
+        ]
+      },
+      "then": {
+        "required": [
+          "audio_fidelity_verification"
+        ],
+        "properties": {
+          "audio_fidelity_verification": {
+            "type": "object",
+            "required": [
+              "clipping_check",
+              "stereo_width_check",
+              "vibe_alignment_check"
+            ],
+            "properties": {
+              "clipping_check": {
+                "type": "object",
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "pass"
+                  }
+                }
+              },
+              "stereo_width_check": {
+                "type": "object",
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "pass"
+                  }
+                }
+              },
+              "vibe_alignment_check": {
+                "type": "object",
+                "required": [
+                  "status"
+                ],
+                "properties": {
+                  "status": {
+                    "const": "pass"
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
     }
   ],
   "$defs": {
@@ -496,6 +658,63 @@
         "uri": {
           "type": "string",
           "minLength": 1
+        }
+      }
+    },
+    "fidelityMetricCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "metrics"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail"
+          ]
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Measured values used to evaluate this check.",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "number"
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "fidelityVibeCheck": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "rationale"
+      ],
+      "properties": {
+        "status": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "fail"
+          ]
+        },
+        "rationale": {
+          "type": "string",
+          "minLength": 1
+        },
+        "metrics": {
+          "type": "object",
+          "description": "Optional quantified support signals for vibe alignment.",
+          "minProperties": 1,
+          "additionalProperties": {
+            "type": "number"
+          }
         }
       }
     }
