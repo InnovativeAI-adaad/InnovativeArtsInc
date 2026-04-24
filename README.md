@@ -139,6 +139,21 @@ Provenance rows include retry metadata:
 
 This keeps repeated runs auditable without appending duplicate entries for unchanged artifacts.
 
+## Documentation Contribution Guidelines
+
+Documentation updates are welcome, but policy and governance files have different contribution rules.
+
+- Use [`DOCS_INDEX.md`](./DOCS_INDEX.md) as the authority map for document status and edit restrictions.
+- **Open contribution docs** (for example, `README.md` and `DOCS_INDEX.md`) can be updated through normal pull requests.
+- **HUMAN-0-governed docs** (for example, `AUTONOMY.md`, `GOVERNANCE.md`, `SECURITY.md`, and policy-governed sections noted in `DOCS_INDEX.md`) require governance review/approval for policy-impacting edits.
+
+### Minimal PR checklist for docs updates
+
+- [ ] Links resolve correctly (internal anchors, relative paths, and external links).
+- [ ] Statements remain consistent with canonical sources (especially `AUTONOMY.md`, `MCP_REGISTRY.md`, and `GOVERNANCE.md` where applicable).
+- [ ] Governance review is requested when changes touch HUMAN-0-restricted or normative governance material.
+- [ ] If `AGENT.md` or `AUTONOMY.md` is touched, include a tier-diff expectation note in the PR to confirm action/tier alignment.
+
 ## Contact and License
 
 - GitHub: [@InnovativeAI-adaad](https://github.com/InnovativeAI-adaad)
