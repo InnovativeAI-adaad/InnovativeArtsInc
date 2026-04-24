@@ -36,6 +36,9 @@ def append_stage_metric(
     duration_ms: int,
     result: str,
     fitness_score: float,
+    uniqueness_validation_time_ms: int | None = None,
+    novelty_index: float | None = None,
+    similarity_guardrail_pass: bool | None = None,
 ) -> dict:
     """Append a stage-completion record and refresh dashboard snapshot."""
     _METRICS_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -47,6 +50,13 @@ def append_stage_metric(
         "fitness_score": fitness_score,
         "timestamp": dt.datetime.now(dt.timezone.utc).isoformat(),
     }
+
+    if uniqueness_validation_time_ms is not None:
+        record["uniqueness_validation_time_ms"] = uniqueness_validation_time_ms
+    if novelty_index is not None:
+        record["novelty_index"] = novelty_index
+    if similarity_guardrail_pass is not None:
+        record["similarity_guardrail_pass"] = similarity_guardrail_pass
     with _METRICS_PATH.open("a", encoding="utf-8") as handle:
         handle.write(json.dumps(record) + "\n")
 

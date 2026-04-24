@@ -15,7 +15,7 @@ from core.agents.ip_agent.telemetry import append_stage_metric
 
 _DEF_NAME = "ip_agent"
 _STAGE_RUN = "ip_agent.run"
-_SIMILARITY_AUDIT_DIR = Path("registry/similarity_audits")
+_STAGE_UNIQUENESS_AUDIT = "ip_agent.uniqueness_audit"
 
 
 def info() -> dict:
@@ -302,6 +302,8 @@ def run(input=None) -> dict:
             "error": "job_id and track_id are required",
             "stage_result_code": "failure:missing_required_ids",
         }
+
+    _emit_uniqueness_audit_stage(payload, job_id=payload["job_id"])
 
     try:
         audit_result = run_similarity_audit(payload)
