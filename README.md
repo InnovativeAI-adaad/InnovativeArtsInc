@@ -73,6 +73,27 @@ Runtime observability artifacts are emitted to:
 - `registry/metrics.jsonl` for stage-level completion telemetry
 - `registry/dashboard_snapshot.json` for periodic queue/success/retry/failure summary snapshots
 
+Expected `registry/metrics.jsonl` record shape:
+
+```json
+{
+  "job_id": "job-123",
+  "stage": "ip_agent.run",
+  "duration_ms": 152,
+  "result": "success",
+  "fitness_score": 1.0,
+  "timestamp": "2026-04-24T12:00:00+00:00",
+  "uniqueness_validation_time_ms": 245,
+  "novelty_index": 0.87,
+  "similarity_guardrail_pass": true
+}
+```
+
+Notes:
+
+- `uniqueness_validation_time_ms`, `novelty_index`, and `similarity_guardrail_pass` are optional telemetry fields emitted by the IPAgent uniqueness audit stage (`ip_agent.uniqueness_audit`).
+- Existing metric producers can omit these optional fields without breaking telemetry ingestion.
+
 ### Provenance behavior and deduplication
 
 The IP provenance hasher writes artifact entries to `registry/provenance_log.jsonl` using a stable deduplication key:

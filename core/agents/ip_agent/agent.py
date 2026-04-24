@@ -10,6 +10,7 @@ from core.agents.ip_agent.telemetry import append_stage_metric
 
 _DEF_NAME = "ip_agent"
 _STAGE_RUN = "ip_agent.run"
+_STAGE_UNIQUENESS_AUDIT = "ip_agent.uniqueness_audit"
 
 
 def info() -> dict:
@@ -34,6 +35,44 @@ def _record_stage(
         duration_ms=int((time.perf_counter() - started_at) * 1000),
         result=result,
         fitness_score=fitness_score,
+    )
+
+
+
+
+def _emit_uniqueness_audit_stage(payload: dict, job_id: str) -> None:
+    uniqueness_validation_time_ms = payload.get("uniqueness_validation_time_ms")
+    novelty_index = payload.get("novelty_index")
+    similarity_guardrail_pass = payload.get("similarity_guardrail_pass")
+
+    if (
+        uniqueness_validation_time_ms is None
+        and novelty_index is None
+        and similarity_guardrail_pass is None
+    ):
+        return
+
+    append_stage_metric(
+        job_id=job_id,
+        stage=_STAGE_UNIQUENESS_AUDIT,
+        duration_ms=int(uniqueness_validation_time_ms or 0),
+        result="success" if similarity_guardrail_pass is not False else "failure:similarity_guardrail",
+        fitness_score=(
+            float(novelty_index)
+            if novelty_index is not None
+            else (1.0 if similarity_guardrail_pass else 0.0)
+        ),
+        uniqueness_validation_time_ms=(
+            int(uniqueness_validation_time_ms)
+            if uniqueness_validation_time_ms is not None
+            else None
+        ),
+        novelty_index=float(novelty_index) if novelty_index is not None else None,
+        similarity_guardrail_pass=(
+            bool(similarity_guardrail_pass)
+            if similarity_guardrail_pass is not None
+            else None
+        ),
     )
 
 
@@ -69,6 +108,8 @@ def run(input=None) -> dict:
             fitness_score=0.0,
         )
         return {"ok": False, "error": "job_id and track_id are required"}
+
+    _emit_uniqueness_audit_stage(payload, job_id=payload["job_id"])
 
     try:
         entries = append_provenance_entries(
