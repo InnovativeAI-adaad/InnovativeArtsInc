@@ -48,6 +48,49 @@ else
   fi
 fi
 
+
+if [[ "$reset_registry" == true ]]; then
+  : > registry/metrics.jsonl
+  echo "Reset registry/metrics.jsonl"
+else
+  if [[ -f registry/metrics.jsonl ]]; then
+    echo "Preserved registry/metrics.jsonl"
+  else
+    : > registry/metrics.jsonl
+    echo "Created registry/metrics.jsonl"
+  fi
+fi
+
+if [[ "$reset_registry" == true ]]; then
+  cat > registry/dashboard_snapshot.json <<'JSON'
+{
+  "generated_at": "1970-01-01T00:00:00+00:00",
+  "queue_depth": 0,
+  "success_rate": 0.0,
+  "retry_rate": 0.0,
+  "top_failure_codes": [],
+  "sample_size": 0
+}
+JSON
+  echo "Reset registry/dashboard_snapshot.json"
+else
+  if [[ -f registry/dashboard_snapshot.json ]]; then
+    echo "Preserved registry/dashboard_snapshot.json"
+  else
+    cat > registry/dashboard_snapshot.json <<'JSON'
+{
+  "generated_at": "1970-01-01T00:00:00+00:00",
+  "queue_depth": 0,
+  "success_rate": 0.0,
+  "retry_rate": 0.0,
+  "top_failure_codes": [],
+  "sample_size": 0
+}
+JSON
+    echo "Created registry/dashboard_snapshot.json"
+  fi
+fi
+
 if [[ "$reset_registry" == true ]]; then
   cat > registry/version_manifest.json <<'JSON'
 {"version": "9.34.0", "status": "initializing"}

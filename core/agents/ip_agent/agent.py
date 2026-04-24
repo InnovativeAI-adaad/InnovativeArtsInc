@@ -16,6 +16,23 @@ def info() -> dict:
     }
 
 
+def _record_stage(
+    *,
+    job_id: str,
+    stage: str,
+    started_at: float,
+    result: str,
+    fitness_score: float,
+) -> None:
+    append_stage_metric(
+        job_id=job_id,
+        stage=stage,
+        duration_ms=int((time.perf_counter() - started_at) * 1000),
+        result=result,
+        fitness_score=fitness_score,
+    )
+
+
 def run(input=None) -> dict:
     payload = input or {}
     output_files = payload.get("output_files")
