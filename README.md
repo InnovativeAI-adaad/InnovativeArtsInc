@@ -66,4 +66,8 @@ The repository now includes a production scaffold for the **Red Dirt Revelation:
 - `registry/` for version/provenance state
 - `pipelines/` for ingestion and release automation scripts
 
+Runtime observability artifacts for Sovereign Ledger are emitted to:
+- `registry/metrics.jsonl` for stage-level completion telemetry
+- `registry/dashboard_snapshot.json` for periodic queue/success/retry/failure summary snapshots
+
 Use `./init_engine.sh` to re-create the baseline structure in fresh environments.
