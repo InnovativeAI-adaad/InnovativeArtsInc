@@ -1,4 +1,5 @@
-from core.gatekeeper.models import PolicyRule
-from core.gatekeeper.policy_loader import PolicyParseError, load_policy
+"""Gatekeeper validation primitives."""
 
-__all__ = ["PolicyRule", "PolicyParseError", "load_policy"]
+from .ratification import RatificationValidationError, validate_ratification
+
+__all__ = ["RatificationValidationError", "validate_ratification"]

@@ -52,6 +52,19 @@ _COMPAT_ALLOWED_NEXT_STAGES: dict[str, tuple[str, ...]] = {
 }
 
 
+TRANSITION_METADATA_BY_TO_STAGE: dict[str, dict[str, Any]] = {
+    "provenance_written": {
+        "can_invoke_level_3": True,
+        "ratification_scope": "publish_release",
+        "level_3_actions": ("publish_release",),
+    },
+    "rollout_packaged": {
+        "can_invoke_level_3": True,
+        "ratification_scope": "deploy_production",
+        "level_3_actions": ("deploy_production", "merge_pr_main"),
+    },
+}
+
 class TransitionValidationError(ValueError):
     """Raised when a transition request violates state machine rules."""
 
@@ -157,6 +170,10 @@ def transition_media_job(
     }
     if runtime_payload is not None:
         event["runtime_payload"] = runtime_payload
+
+    transition_metadata = TRANSITION_METADATA_BY_TO_STAGE.get(to_stage)
+    if transition_metadata is not None:
+        event["transition_metadata"] = deepcopy(transition_metadata)
 
     new_record.setdefault("transition_log", []).append(event)
     return new_record
