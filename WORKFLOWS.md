@@ -128,19 +128,28 @@ steps:
        - Build prompt package with required `generate_music` params: `prompt`, `style_profile`, `seed`, `length` (+ optional `tempo`, `key`)
        - Persist package reference in job record fields `input_assets` and `provenance_refs` for replay/audit
        - Set `stage` to generation-prep and emit `status: running` with current `attempt`
-  4. generate_music       # Execute auditable music generation
+  4. verify_uniqueness_strategy  # Pre-generation novelty/guardrail strategy gate
+     owner: IPAgent
+     notes:
+       - Required inputs: `prompt_package_ref`, `style_dna_fingerprint`, `seed_policy`
+       - Required outputs: `decision_artifact_ref`, `novelty_metrics`, `guardrail_pass_fail`
+       - Persist decision artifact + metrics under `provenance_refs` before generation is allowed
+       - Set media job `status` to `blocked` when guardrail fails; only pass allows generation execution
+  5. generate_music       # Execute auditable music generation
      owner: MediaAgent
      notes:
+       - Execute only when `verify_uniqueness_strategy` returns `guardrail_pass_fail: pass`
        - Must use contracted provider interface and capture provider generation ID
        - Required outputs: `audio_path`, `render_metadata`, `uniqueness_report_ref`
        - Record rendered artifact under `output_assets`, and attach provider/model references under `provenance_refs`
-  5. generate_metadata    # Run uniqueness/similarity gate
+  6. generate_metadata    # Run post-generation uniqueness/similarity gate (separate control)
      owner: IPAgent
      notes:
+       - This gate remains independent from `verify_uniqueness_strategy` and runs after audio is generated
        - Evaluate generated audio against similarity thresholds before catalog/tag
        - Write gate metrics and decision artifact, then reference artifact via `provenance_refs` using `uniqueness_report_ref`
        - Set media job `status` to `blocked` when gate fails, otherwise continue with `status: running`
-  6. generate_metadata    # Emit per-run job metadata (hard gate)
+  7. generate_metadata    # Emit per-run job metadata (hard gate)
      owner: MediaAgent
      notes:
        - Emit exactly one JSON file under projects/jrt/metadata/jobs/ per autonomous run
@@ -149,15 +158,15 @@ steps:
        - Required schema fields in emitted record: `job_id`, `track_id`, `stage`, `input_assets`, `output_assets`, `agent_owner`, `status`, `attempt`, `created_at`, `provenance_refs`
        - Current emitter: `python pipelines/validate_media_outputs.py --jobs-dir projects/jrt/metadata/jobs`
        - Block workflow progression if validation fails or file is missing
-  7. catalog_music        # Extract and store track metadata
+  8. catalog_music        # Extract and store track metadata
      owner: MediaAgent
      notes:
-       - Execute only when uniqueness/similarity gate has passed and job `status` is not `blocked`
-  8. tag_audio            # Apply ID3 tags if missing
+       - Execute only when `verify_uniqueness_strategy` is pass, post-generation uniqueness/similarity gate has passed, and job `status` is not `blocked`
+  9. tag_audio            # Apply ID3 tags if missing
      owner: MediaAgent
      notes:
-       - Execute only when uniqueness/similarity gate has passed and generated `audio_path` is approved
-  9. generate_metadata    # Finalize and persist ingest artifacts
+       - Execute only when `verify_uniqueness_strategy` is pass, post-generation uniqueness/similarity gate has passed, and generated `audio_path` is approved
+  10. generate_metadata    # Finalize and persist ingest artifacts
      owner: IPAgent
      notes:
        - Build rollout package for downstream distribution
@@ -167,17 +176,18 @@ steps:
          - update provenance/log
          - append ingest summary entry
          - include the emitted media job file path from projects/jrt/metadata/jobs/
-  10. create_issue         # "New tracks added: [list]"
+  11. create_issue         # "New tracks added: [list]"
      owner: MediaAgent
-  11. write_agent_log      # Record catalog update and artifact paths + job record path
+  12. write_agent_log      # Record catalog update and artifact paths + job record path
      owner: MediaAgent
 
 rollback:
   - If unsupported file type is detected in projects/jrt/audio/: skip ingest for that file, create issue, and log rollback action with path + MIME type
   - If expected metadata file is missing under projects/jrt/metadata/: stop ingest batch, create issue, and mark run as blocked (no partial ingest)
   - If planned schema files are missing: fail fast before catalog step and record "orphan-asset prevention gate tripped"
+  - If `verify_uniqueness_strategy` fails (`guardrail_pass_fail: fail`): block generation execution, emit issue containing decision artifact + novelty metrics, and require prompt/style/seed-policy revision before retry attempt
   - If the per-run media job JSON is missing or fails schema validation: fail fast before catalog step and record "media-job gate tripped"
-  - If uniqueness/similarity gate fails: block release packaging, emit issue containing similarity metrics + report reference, and require prompt/model revision before retry attempt
+  - If post-generation uniqueness/similarity gate fails: block release packaging, emit issue containing similarity metrics + report reference, and require prompt/model revision before retry attempt
 ```
 
 ---
