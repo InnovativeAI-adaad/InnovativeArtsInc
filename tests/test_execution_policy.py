@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import hmac
 import json
+from hashlib import sha256
 from pathlib import Path
 
 from core.agents.execution_policy import execute_with_retry_policy
@@ -19,6 +21,16 @@ def _write_config(path: Path) -> None:
         ),
         encoding="utf-8",
     )
+
+
+def _authorization_signature(key: str, actor_id: str, role: str, scopes: str, issued_at: str) -> str:
+    payload = (
+        f"actor_id={actor_id}\n"
+        f"role={role}\n"
+        f"scopes={scopes}\n"
+        f"issued_at={issued_at}\n"
+    ).encode("utf-8")
+    return hmac.new(key.encode("utf-8"), payload, sha256).hexdigest()
 
 
 def test_quarantine_creates_incident_and_repair_lineage(tmp_path: Path) -> None:
@@ -73,6 +85,7 @@ def test_level_3_action_requires_valid_ratification(tmp_path: Path, monkeypatch)
     config = tmp_path / "config.json"
     _write_config(config)
     monkeypatch.setenv("ADAAD_RATIFICATION_HMAC_KEY", "ratify-key")
+    monkeypatch.setenv("ADAAD_AUTHORIZATION_HMAC_KEY", "auth-key")
 
     runner_calls = {"count": 0}
 
@@ -94,20 +107,74 @@ def test_level_3_action_requires_valid_ratification(tmp_path: Path, monkeypatch)
     assert "ratification validation failed" in result["attempts"][0]["error"]
 
 
-def test_level_3_action_with_valid_ratification_runs(tmp_path: Path, monkeypatch) -> None:
-    import hmac
-    from hashlib import sha256
-
+def test_level_3_action_requires_valid_authorization(tmp_path: Path, monkeypatch) -> None:
     config = tmp_path / "config.json"
     _write_config(config)
 
-    key = "ratify-key"
-    monkeypatch.setenv("ADAAD_RATIFICATION_HMAC_KEY", key)
+    ratify_key = "ratify-key"
+    monkeypatch.setenv("ADAAD_RATIFICATION_HMAC_KEY", ratify_key)
+    monkeypatch.setenv("ADAAD_AUTHORIZATION_HMAC_KEY", "auth-key")
+
     ratifier_id = "owner:alice"
     ratified_at = "2026-04-20T10:00:00+00:00"
     scope = "deploy_production"
-    sig_payload = f"ratifier_id={ratifier_id}\nratified_at={ratified_at}\nscope={scope}\n".encode("utf-8")
-    signature = hmac.new(key.encode("utf-8"), sig_payload, sha256).hexdigest()
+    rat_sig_payload = (
+        f"ratifier_id={ratifier_id}\nratified_at={ratified_at}\nscope={scope}\n".encode("utf-8")
+    )
+    signature = hmac.new(ratify_key.encode("utf-8"), rat_sig_payload, sha256).hexdigest()
+
+    runner_calls = {"count": 0}
+
+    def guarded_runner(payload: dict) -> dict:
+        runner_calls["count"] += 1
+        return {"ok": True}
+
+    result = execute_with_retry_policy(
+        agent_name="ReleaseAgent",
+        job_payload={
+            "job_id": "job-auth-missing",
+            "action": "deploy_production",
+            "tier": "level_3",
+            "ratification": {
+                "human_ratified": True,
+                "ratifier_id": ratifier_id,
+                "ratified_at": ratified_at,
+                "scope": scope,
+                "signature": signature,
+            },
+        },
+        runner=guarded_runner,
+        config_path=config,
+        sleep_fn=lambda _: None,
+        incident_dir=tmp_path / "incidents",
+    )
+
+    assert result["status"] == "quarantine"
+    assert runner_calls["count"] == 0
+    assert "authorization validation failed" in result["attempts"][0]["error"]
+
+
+def test_level_3_action_with_valid_ratification_and_authorization_runs(
+    tmp_path: Path, monkeypatch
+) -> None:
+    config = tmp_path / "config.json"
+    _write_config(config)
+
+    ratify_key = "ratify-key"
+    auth_key = "auth-key"
+    monkeypatch.setenv("ADAAD_RATIFICATION_HMAC_KEY", ratify_key)
+    monkeypatch.setenv("ADAAD_AUTHORIZATION_HMAC_KEY", auth_key)
+
+    ratifier_id = "owner:alice"
+    ratified_at = "2026-04-20T10:00:00+00:00"
+    scope = "deploy_production"
+    rat_sig_payload = f"ratifier_id={ratifier_id}\nratified_at={ratified_at}\nscope={scope}\n".encode("utf-8")
+    rat_signature = hmac.new(ratify_key.encode("utf-8"), rat_sig_payload, sha256).hexdigest()
+
+    actor_id = "reviewer:bob"
+    role = "reviewer"
+    issued_at = "2026-04-20T10:01:00+00:00"
+    auth_signature = _authorization_signature(auth_key, actor_id, role, scope, issued_at)
 
     runner_calls = {"count": 0}
 
@@ -126,7 +193,14 @@ def test_level_3_action_with_valid_ratification_runs(tmp_path: Path, monkeypatch
                 "ratifier_id": ratifier_id,
                 "ratified_at": ratified_at,
                 "scope": scope,
-                "signature": signature,
+                "signature": rat_signature,
+            },
+            "authorization": {
+                "actor_id": actor_id,
+                "role": role,
+                "scopes": scope,
+                "issued_at": issued_at,
+                "signature": auth_signature,
             },
         },
         runner=guarded_runner,

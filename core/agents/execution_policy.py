@@ -11,6 +11,7 @@ from typing import Any, Callable
 from uuid import uuid4
 
 from core.gatekeeper.abort import hard_abort
+from core.gatekeeper.authorization import AuthorizationValidationError, validate_scoped_authorization
 from core.gatekeeper.ratification import RatificationValidationError, validate_ratification
 
 
@@ -52,6 +53,11 @@ def _run_pre_execution_checks(job_payload: dict[str, Any]) -> None:
         validate_ratification(job_payload, required_scope=required_scope)
     except RatificationValidationError as exc:
         raise DeterministicAgentError(f"ratification validation failed: {exc}") from exc
+
+    try:
+        validate_scoped_authorization(job_payload, required_scope=required_scope)
+    except AuthorizationValidationError as exc:
+        raise DeterministicAgentError(f"authorization validation failed: {exc}") from exc
 
 @dataclass(frozen=True)
 class RetryPolicy:
