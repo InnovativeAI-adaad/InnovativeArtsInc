@@ -116,6 +116,80 @@ def test_read_jsonl_skips_malformed_lines(tmp_path: Path) -> None:
     assert [record["event_id"] for record in records] == ["ok-1", "ok-2"]
 
 
+def _legacy_read_jsonl(path: Path, *, max_entries: int | None = 20) -> list[dict]:
+    if not path.exists():
+        return []
+    rows: list[dict] = []
+    for raw in path.read_text(encoding="utf-8").splitlines():
+        raw = raw.strip()
+        if not raw:
+            continue
+        try:
+            rows.append(json.loads(raw))
+        except json.JSONDecodeError:
+            continue
+    if max_entries is None:
+        return rows
+    return rows[-max_entries:]
+
+
+def test_read_jsonl_logs_debug_counter_for_malformed_lines(tmp_path: Path, caplog: pytest.LogCaptureFixture) -> None:
+    path = tmp_path / "events.jsonl"
+    path.write_text('{"event_id":"ok-1"}\n{bad-1\n\n{bad-2\n{"event_id":"ok-2"}\n', encoding="utf-8")
+
+    with caplog.at_level("DEBUG"):
+        records = GovernanceControlPlane._read_jsonl(path, max_entries=None)
+
+    assert [record["event_id"] for record in records] == ["ok-1", "ok-2"]
+    assert "Skipped 2 malformed JSONL record(s)" in caplog.text
+
+
+def test_read_jsonl_tail_extraction_uses_latest_valid_records_only(tmp_path: Path) -> None:
+    path = tmp_path / "events.jsonl"
+    path.write_text(
+        '\n'.join(
+            [
+                '{"event_id":"e1"}',
+                '{"event_id":"e2"}',
+                '{broken-json',
+                '{"event_id":"e3"}',
+                '{"event_id":"e4"}',
+                '{"event_id":"e5"}',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    records = GovernanceControlPlane._read_jsonl(path, max_entries=3)
+
+    assert [record["event_id"] for record in records] == ["e3", "e4", "e5"]
+
+
+@pytest.mark.parametrize("max_entries", [None, 1, 2, 5, 20])
+def test_read_jsonl_matches_legacy_behavior(tmp_path: Path, max_entries: int | None) -> None:
+    path = tmp_path / "events.jsonl"
+    path.write_text(
+        '\n'.join(
+            [
+                '{"event_id":"e1"}',
+                '{invalid-a',
+                '{"event_id":"e2","nested":{"ok":true}}',
+                '',
+                '{"event_id":"e3"}',
+                '{invalid-b',
+                '{"event_id":"e4"}',
+                "",
+            ]
+        ),
+        encoding="utf-8",
+    )
+
+    assert GovernanceControlPlane._read_jsonl(path, max_entries=max_entries) == _legacy_read_jsonl(
+        path, max_entries=max_entries
+    )
+
+
 def test_audit_explorer_skips_malformed_incident_and_similarity_files(tmp_path: Path, monkeypatch) -> None:
     monkeypatch.setenv("ADAAD_GOVERNANCE_HMAC_KEY", "gov-key")
     provenance_path = tmp_path / "provenance.jsonl"

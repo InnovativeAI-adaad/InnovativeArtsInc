@@ -7,6 +7,7 @@ import hmac
 import json
 import logging
 import os
+from collections import deque
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -260,22 +261,38 @@ class GovernanceControlPlane:
     def _read_jsonl(path: Path, *, max_entries: int | None = 20) -> list[dict[str, Any]]:
         if not path.exists():
             return []
-        rows: list[dict[str, Any]] = []
         skipped_malformed_records = 0
-        for raw in path.read_text(encoding="utf-8").splitlines():
-            raw = raw.strip()
-            if not raw:
-                continue
-            try:
-                rows.append(json.loads(raw))
-            except json.JSONDecodeError:
-                skipped_malformed_records += 1
-                continue
+
+        if max_entries is None:
+            rows: list[dict[str, Any]] = []
+            with path.open("r", encoding="utf-8") as handle:
+                for raw in handle:
+                    raw = raw.strip()
+                    if not raw:
+                        continue
+                    try:
+                        rows.append(json.loads(raw))
+                    except json.JSONDecodeError:
+                        skipped_malformed_records += 1
+                        continue
+            if skipped_malformed_records:
+                LOGGER.debug("Skipped %d malformed JSONL record(s) from %s", skipped_malformed_records, path)
+            return rows
+
+        rows = deque(maxlen=max_entries)
+        with path.open("r", encoding="utf-8") as handle:
+            for raw in handle:
+                raw = raw.strip()
+                if not raw:
+                    continue
+                try:
+                    rows.append(json.loads(raw))
+                except json.JSONDecodeError:
+                    skipped_malformed_records += 1
+                    continue
         if skipped_malformed_records:
             LOGGER.debug("Skipped %d malformed JSONL record(s) from %s", skipped_malformed_records, path)
-        if max_entries is None:
-            return rows
-        return rows[-max_entries:]
+        return list(rows)
 
     def _read_agent_log_excerpt(self, *, max_lines: int) -> list[str]:
         if not self.agent_log_path.exists():
