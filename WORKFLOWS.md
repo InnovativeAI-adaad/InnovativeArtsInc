@@ -190,7 +190,18 @@ To define a new workflow:
 
 ---
 
-## 4. Workflow Logging
+## 4. Gate IAI-G2 Validation Checklist (MCP)
+
+For any workflow step that interacts with MCP authorization:
+
+- [ ] Read `MCP_REGISTRY.md` directly during Gate IAI-G2 validation.
+- [ ] Do **not** read `MCP_SERVERS.md` for authorization, scope, endpoint, tier, or approval enforcement decisions.
+- [ ] If `MCP_SERVERS.md` and `MCP_REGISTRY.md` differ, treat `MCP_REGISTRY.md` as authoritative override.
+- [ ] Block execution when server status is not `active` in `MCP_REGISTRY.md`.
+
+---
+
+## 5. Workflow Logging
 
 Every workflow execution appends to `AGENT_LOG.md`:
 
