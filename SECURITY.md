@@ -89,6 +89,39 @@ gsk_*                 Groq API key
 
 ---
 
+## 4.1 Operator Runbook — AGENT_LOG HMAC Key Management
+
+This runbook governs provisioning and use of the AGENT_LOG chain key consumed by `pipelines/validate_agent_log_chain.py`.
+
+### Provisioning
+
+1. Generate a high-entropy HMAC key using an approved secret workflow (password manager/secret manager/HSM-backed generator).
+2. Store the value in your secret manager or CI secret store as `ADAAD_HMAC_KEY`.
+3. Inject `ADAAD_HMAC_KEY` into runtime environments; do not commit it into repository files.
+4. Use redacted placeholders in docs and examples (for example `ADAAD_HMAC_KEY=<redacted>`).
+
+### Rotation
+
+1. Create a new key in the secret manager and stage rollout to all validator runtimes.
+2. Update CI and local operator environments to the new `ADAAD_HMAC_KEY`.
+3. Validate chain behavior in a controlled environment before enforcing globally.
+4. Record the rotation event in `AGENT_LOG.md` as a ratified operational/security action.
+5. Retire the old key from all stores and revoke any cached copies.
+
+### Local validation usage (safe pattern)
+
+```bash
+export ADAAD_HMAC_KEY='<redacted>'
+python pipelines/validate_agent_log_chain.py --log AGENT_LOG.md
+```
+
+Operational guardrails:
+- Never pass key material as a CLI argument.
+- Never echo or print the key value in terminal output, logs, CI annotations, or PR comments.
+- If `ADAAD_HMAC_KEY` is absent, validation must fail closed.
+
+---
+
 ## 5. Agent Impersonation Protection
 
 - All agent-created commits are signed and prefixed with `[AGENT]`.

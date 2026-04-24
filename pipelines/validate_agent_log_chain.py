@@ -14,6 +14,7 @@ The validator checks:
 from __future__ import annotations
 
 import argparse
+import os
 import hmac
 import re
 import sys
@@ -22,7 +23,7 @@ from dataclasses import dataclass
 from hashlib import sha256
 from pathlib import Path
 
-HMAC_KEY = "approved, devadaad".encode("utf-8")
+DEFAULT_HMAC_KEY_ENV = "ADAAD_HMAC_KEY"
 DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 
 
@@ -63,8 +64,8 @@ def canonical_payload(entry: Entry) -> bytes:
     return payload.encode("utf-8")
 
 
-def recompute_digest(entry: Entry) -> str:
-    return hmac.new(HMAC_KEY, canonical_payload(entry), sha256).hexdigest()
+def recompute_digest(entry: Entry, hmac_key: bytes) -> str:
+    return hmac.new(hmac_key, canonical_payload(entry), sha256).hexdigest()
 
 
 def _extract_required(block: str, key: str) -> str:
@@ -112,7 +113,7 @@ def parse_entries(log_text: str) -> list[Entry]:
     return entries
 
 
-def validate(entries: list[Entry]) -> list[str]:
+def validate(entries: list[Entry], hmac_key: bytes) -> list[str]:
     errors: list[str] = []
     previous_digest: str | None = None
     previous_id: int | None = None
@@ -150,7 +151,7 @@ def validate(entries: list[Entry]) -> list[str]:
         if not DIGEST_RE.fullmatch(entry.entry_digest):
             errors.append(f"entry_digest format invalid at ENTRY-{expected_id}: '{entry.entry_digest}'")
         else:
-            computed = recompute_digest(entry)
+            computed = recompute_digest(entry, hmac_key)
             if computed != entry.entry_digest:
                 errors.append(
                     f"entry_digest mismatch at ENTRY-{expected_id}: expected {computed}, found {entry.entry_digest}"
@@ -164,16 +165,31 @@ def validate(entries: list[Entry]) -> list[str]:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Validate AGENT_LOG.md HMAC chain invariants")
     parser.add_argument("--log", default="AGENT_LOG.md", help="Path to AGENT_LOG.md")
+    parser.add_argument(
+        "--hmac-key-env",
+        default=DEFAULT_HMAC_KEY_ENV,
+        help=(
+            "Environment variable name containing the AGENT_LOG HMAC key "
+            f"(default: {DEFAULT_HMAC_KEY_ENV})"
+        ),
+    )
     args = parser.parse_args()
 
     log_path = Path(args.log)
     if not log_path.exists():
         print(f"ERROR: log file not found: {log_path}", file=sys.stderr)
         return 2
+    hmac_key = os.getenv(args.hmac_key_env)
+    if not hmac_key:
+        print(
+            f"ERROR: required HMAC key env var '{args.hmac_key_env}' is not set; refusing to validate.",
+            file=sys.stderr,
+        )
+        return 2
 
     try:
         entries = parse_entries(log_path.read_text(encoding="utf-8"))
-        errors = validate(entries)
+        errors = validate(entries, hmac_key.encode("utf-8"))
     except ValueError as exc:
         print(f"INVALID: {exc}")
         return 1
