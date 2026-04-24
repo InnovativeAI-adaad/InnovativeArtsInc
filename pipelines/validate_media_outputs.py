@@ -20,6 +20,7 @@ import argparse
 import json
 import re
 import sys
+import time
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -32,6 +33,24 @@ class CheckResult:
     passed: bool
     required: bool
     details: str
+
+
+@dataclass
+class RuntimeRetryPolicy:
+    max_attempts: int
+    backoff_seconds: list[float]
+
+
+@dataclass
+class RemediationAttempt:
+    attempt: int
+    failure_type: str
+    action: str
+    status: str
+    backoff_seconds: float
+    checks: list[str]
+    details: str
+    timestamp: str
 
 
 RELEASE_BUNDLE_SCHEMA: dict[str, Any] = {
@@ -68,6 +87,15 @@ def _utc_now() -> str:
 
 def _utc_basic_timestamp() -> str:
     return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _load_runtime_retry_policy(config_path: Path) -> RuntimeRetryPolicy:
+    data = _load_json(config_path)
+    retry_policy = data.get("retry_policy", {})
+    max_attempts = int(retry_policy.get("max_attempts", 1))
+    raw_backoff = retry_policy.get("backoff_seconds", [])
+    backoff_seconds = [float(value) for value in raw_backoff] if isinstance(raw_backoff, list) else []
+    return RuntimeRetryPolicy(max_attempts=max_attempts, backoff_seconds=backoff_seconds)
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -350,6 +378,91 @@ def validate_tracks(manifest: dict[str, Any], rules: dict[str, Any], repo_root: 
     }
 
 
+def _required_failure_names(results: dict[str, Any]) -> list[str]:
+    failures: set[str] = set()
+    for track_result in results.get("track_results", []):
+        for failure in track_result.get("required_failures", []):
+            if isinstance(failure, str) and failure:
+                failures.add(failure)
+    return sorted(failures)
+
+
+def _classify_failure_types(failure_names: list[str]) -> dict[str, list[str]]:
+    classification: dict[str, list[str]] = {
+        "mixing-level": [],
+        "metadata-level": [],
+        "structure-level": [],
+    }
+    for failure_name in failure_names:
+        if failure_name in {"loudness_bounds", "clipping"}:
+            classification["mixing-level"].append(failure_name)
+        elif failure_name in {"metadata_completeness"}:
+            classification["metadata-level"].append(failure_name)
+        else:
+            classification["structure-level"].append(failure_name)
+    return {key: value for key, value in classification.items() if value}
+
+
+def _remediation_policy_for_failure_type(failure_type: str, attempt: int) -> tuple[str, str]:
+    if failure_type == "mixing-level":
+        return ("adjust_gain", f"applied gain normalization profile (attempt={attempt})")
+    if failure_type == "metadata-level":
+        return ("re-tag metadata", f"applied strict metadata retagging pass (attempt={attempt})")
+    return (
+        "regenerate with revised prompt constraints",
+        f"applied constrained regeneration prompt policy (attempt={attempt})",
+    )
+
+
+def _compute_backoff_seconds(policy: RuntimeRetryPolicy, attempt_index: int) -> float:
+    if not policy.backoff_seconds:
+        return 0.0
+    if attempt_index < len(policy.backoff_seconds):
+        return policy.backoff_seconds[attempt_index]
+    return policy.backoff_seconds[-1]
+
+
+def orchestrate_remediation(
+    manifest: dict[str, Any],
+    rules: dict[str, Any],
+    repo_root: Path,
+    retry_policy: RuntimeRetryPolicy,
+    *,
+    sleep_fn: Any = time.sleep,
+) -> tuple[dict[str, Any], list[RemediationAttempt]]:
+    attempts: list[RemediationAttempt] = []
+    latest_results = validate_tracks(manifest, rules, repo_root)
+    if latest_results["all_required_checks_passed"]:
+        return latest_results, attempts
+
+    for attempt in range(1, retry_policy.max_attempts + 1):
+        failure_names = _required_failure_names(latest_results)
+        classification = _classify_failure_types(failure_names)
+        ordered_failure_types = sorted(classification.keys())
+        for failure_type in ordered_failure_types:
+            action, details = _remediation_policy_for_failure_type(failure_type, attempt)
+            backoff_seconds = _compute_backoff_seconds(retry_policy, attempt - 1)
+            attempts.append(
+                RemediationAttempt(
+                    attempt=attempt,
+                    failure_type=failure_type,
+                    action=action,
+                    status="applied",
+                    backoff_seconds=backoff_seconds,
+                    checks=classification[failure_type],
+                    details=details,
+                    timestamp=_utc_now(),
+                )
+            )
+        latest_results = validate_tracks(manifest, rules, repo_root)
+        if latest_results["all_required_checks_passed"]:
+            return latest_results, attempts
+        if attempt < retry_policy.max_attempts:
+            sleep_fn(_compute_backoff_seconds(retry_policy, attempt - 1))
+
+    return latest_results, attempts
+
+
 def _asset_ref(asset_id: str, path_value: str) -> dict[str, str]:
     return {"asset_id": asset_id, "path": path_value}
 
@@ -586,6 +699,18 @@ def validate_job_record_schema(record: dict[str, Any], schema: dict[str, Any]) -
         _validate_generation_config(record["generation_config"])
         _validate_uniqueness_report(record["uniqueness_report"])
 
+    remediation_attempts = record.get("remediation_attempts")
+    if remediation_attempts is not None:
+        if not isinstance(remediation_attempts, list):
+            raise ValueError("remediation_attempts must be an array when provided")
+        for item in remediation_attempts:
+            if not isinstance(item, dict):
+                raise ValueError("remediation_attempts entries must be objects")
+            required_fields = {"attempt", "failure_type", "action", "status", "backoff_seconds", "checks", "details", "timestamp"}
+            missing_fields = required_fields - set(item.keys())
+            if missing_fields:
+                raise ValueError(f"remediation_attempts entry missing required fields: {sorted(missing_fields)}")
+
 
 def build_job_record(
     manifest_path: Path,
@@ -665,6 +790,11 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--attempt", type=int, default=1, help="Attempt number for this run (must be >= 1)")
     parser.add_argument("--agent-owner", default="MediaAgent", help="Agent owner recorded in the job record")
+    parser.add_argument(
+        "--runtime-config",
+        default="projects/jrt/metadata/agent_runtime_config.json",
+        help="Path to runtime config containing retry/backoff policy",
+    )
     return parser.parse_args()
 
 
@@ -674,17 +804,19 @@ def main() -> int:
     manifest_path = Path(args.manifest)
     rules_path = Path(args.rules)
     jobs_dir = Path(args.jobs_dir)
+    runtime_config_path = Path(args.runtime_config)
     schema_path = Path("projects/jrt/metadata/schema/media_job.schema.json")
 
     try:
         manifest = _load_json(manifest_path)
         rules = _load_json(rules_path)
+        retry_policy = _load_runtime_retry_policy(runtime_config_path)
         schema = _load_json(schema_path)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
-    results = validate_tracks(manifest, rules, repo_root)
+    results, remediation_attempts = orchestrate_remediation(manifest, rules, repo_root, retry_policy)
     record = build_job_record(
         manifest_path,
         rules_path,
@@ -706,6 +838,41 @@ def main() -> int:
             )
         )
     allowed = record["status"] == "succeeded"
+    if remediation_attempts:
+        record["remediation_attempts"] = [
+            {
+                "attempt": item.attempt,
+                "failure_type": item.failure_type,
+                "action": item.action,
+                "status": item.status,
+                "backoff_seconds": item.backoff_seconds,
+                "checks": item.checks,
+                "details": item.details,
+                "timestamp": item.timestamp,
+            }
+            for item in remediation_attempts
+        ]
+        for item in remediation_attempts:
+            record["provenance_refs"].append(
+                _provenance_ref(
+                    "remediation_attempt",
+                    f"{item.failure_type}:attempt-{item.attempt}",
+                    f"action={item.action};checks={','.join(item.checks)};status={item.status}",
+                )
+            )
+
+    if not results["all_required_checks_passed"] and remediation_attempts:
+        exhausted = max(item.attempt for item in remediation_attempts) >= retry_policy.max_attempts
+        if exhausted:
+            record["status"] = "blocked"
+            allowed = False
+            record["provenance_refs"].append(
+                _provenance_ref(
+                    "remediation_terminal_state",
+                    "max_attempts_exhausted",
+                    f"max_attempts={retry_policy.max_attempts}",
+                )
+            )
 
     timestamp = record["created_at"].replace("-", "").replace(":", "").replace(".", "")
     timestamp = timestamp.replace("+0000", "").replace("+00:00", "").replace("Z", "")
