@@ -15,8 +15,15 @@ from typing import Any
 from uuid import uuid4
 
 from core.agents.execution_policy import LEVEL_3_ACTIONS
+from core.gatekeeper.creative_policy import (
+    ConstraintPolicyError,
+    enforce_policy_safe_constraints,
+    map_override_to_tier,
+    validate_creative_constraints,
+)
 
 ACTION_TRAIL_KEY_ENV = "ADAAD_GOVERNANCE_HMAC_KEY"
+CONTROL_SNAPSHOT_KEY_ENV = "ADAAD_CONTROL_SNAPSHOT_HMAC_KEY"
 LOGGER = logging.getLogger(__name__)
 
 
@@ -71,6 +78,8 @@ class GovernanceControlPlane:
         provenance_log_path: Path = Path("registry/provenance_log.jsonl"),
         incidents_dir: Path = Path("projects/jrt/metadata/incidents"),
         similarity_audit_dir: Path = Path("registry/similarity_audits"),
+        runtime_control_config_path: Path = Path("projects/jrt/metadata/control_plane.runtime.json"),
+        control_snapshot_store: Path = Path("projects/jrt/metadata/control_snapshots.jsonl"),
     ) -> None:
         self.ratification_store = ratification_store
         self.action_trail_store = action_trail_store
@@ -78,6 +87,8 @@ class GovernanceControlPlane:
         self.provenance_log_path = provenance_log_path
         self.incidents_dir = incidents_dir
         self.similarity_audit_dir = similarity_audit_dir
+        self.runtime_control_config_path = runtime_control_config_path
+        self.control_snapshot_store = control_snapshot_store
 
     def create_ratification_request(
         self,
@@ -165,6 +176,53 @@ class GovernanceControlPlane:
         }
         self._record_signed_action(actor=actor, event_type="manual_override", payload=event)
         return event
+
+    def create_generation_strategy(
+        self,
+        *,
+        actor: Actor,
+        creative_constraints: dict[str, Any],
+        override_level: str = "standard",
+        metadata: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        self._authorize(actor, "override.retry")
+        runtime_policy = self._load_runtime_control_policy()
+
+        try:
+            validated_constraints = validate_creative_constraints(
+                creative_constraints,
+                runtime_policy=runtime_policy,
+            )
+            override_policy = map_override_to_tier(override_level, runtime_policy=runtime_policy)
+        except ConstraintPolicyError as exc:
+            raise GovernanceError(str(exc)) from exc
+
+        tempo_window = validated_constraints["tempo_window"]
+        target_bpm = int(round((tempo_window["min_bpm"] + tempo_window["max_bpm"]) / 2))
+        strategy_payload = {
+            "strategy_id": f"strat-{uuid4().hex[:12]}",
+            "created_at": self._now_iso(),
+            "created_by": actor.actor_id,
+            "constraints": validated_constraints,
+            "override": override_policy,
+            "generation_strategy": {
+                "target_bpm": target_bpm,
+                "candidate_keys": validated_constraints["key_window"]["keys"],
+                "mood_schedule": validated_constraints["mood_arc"],
+            },
+            "metadata": metadata or {},
+        }
+
+        try:
+            enforce_policy_safe_constraints(strategy_payload, runtime_policy=runtime_policy)
+        except ConstraintPolicyError as exc:
+            raise GovernanceError(str(exc)) from exc
+
+        snapshot = self._store_signed_control_snapshot(actor=actor, strategy_payload=strategy_payload)
+        strategy_payload["control_snapshot_ref"] = snapshot["snapshot_id"]
+        strategy_payload["provenance_ref"] = snapshot["provenance_event_id"]
+        self._record_signed_action(actor=actor, event_type="control_strategy.create", payload=strategy_payload)
+        return strategy_payload
 
     def read_audit_explorer(self, *, actor: Actor, max_entries: int = 20) -> dict[str, Any]:
         self._authorize(actor, "audit.read")
@@ -256,6 +314,56 @@ class GovernanceControlPlane:
         with path.open("w", encoding="utf-8") as handle:
             for row in rows:
                 handle.write(json.dumps(row, sort_keys=True) + "\n")
+
+    def _load_runtime_control_policy(self) -> dict[str, Any]:
+        if not self.runtime_control_config_path.exists():
+            raise GovernanceError(
+                f"runtime control config not found: {self.runtime_control_config_path}"
+            )
+        try:
+            return json.loads(self.runtime_control_config_path.read_text(encoding="utf-8"))
+        except json.JSONDecodeError as exc:
+            raise GovernanceError(
+                f"runtime control config is malformed JSON: {self.runtime_control_config_path}"
+            ) from exc
+
+    def _store_signed_control_snapshot(
+        self,
+        *,
+        actor: Actor,
+        strategy_payload: dict[str, Any],
+    ) -> dict[str, Any]:
+        key = os.getenv(CONTROL_SNAPSHOT_KEY_ENV) or os.getenv(ACTION_TRAIL_KEY_ENV)
+        if not key:
+            raise GovernanceError(
+                f"missing governance key env var: {CONTROL_SNAPSHOT_KEY_ENV} or {ACTION_TRAIL_KEY_ENV}"
+            )
+
+        snapshot = {
+            "snapshot_id": f"ctl-{uuid4().hex[:12]}",
+            "captured_at": self._now_iso(),
+            "actor_id": actor.actor_id,
+            "actor_role": actor.role,
+            "strategy_payload": strategy_payload,
+        }
+        canonical = json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode("utf-8")
+        snapshot["payload_sha256"] = hashlib.sha256(canonical).hexdigest()
+        snapshot["signature"] = hmac.new(key.encode("utf-8"), canonical, hashlib.sha256).hexdigest()
+        self._append_jsonl(self.control_snapshot_store, snapshot)
+
+        provenance_event = {
+            "event_id": f"prov-{uuid4().hex[:12]}",
+            "event_type": "control_snapshot",
+            "timestamp": self._now_iso(),
+            "control_snapshot_ref": snapshot["snapshot_id"],
+            "control_payload_sha256": snapshot["payload_sha256"],
+            "strategy_id": strategy_payload.get("strategy_id"),
+        }
+        self._append_jsonl(self.provenance_log_path, provenance_event)
+        return {
+            "snapshot_id": snapshot["snapshot_id"],
+            "provenance_event_id": provenance_event["event_id"],
+        }
 
     @staticmethod
     def _read_jsonl(path: Path, *, max_entries: int | None = 20) -> list[dict[str, Any]]:
