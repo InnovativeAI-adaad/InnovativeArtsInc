@@ -30,6 +30,13 @@ class MediaStateMachineTests(unittest.TestCase):
             "novelty_threshold": 0.7,
         }
 
+    @staticmethod
+    def _rollout_payload() -> dict:
+        return {
+            "release_bundle_validation": "passed",
+            "release_bundle_artifact_ref": "registry://releases/job-1-bundle.json",
+        }
+
     def test_happy_path_transitions_and_log_fields(self) -> None:
         record = initialize_media_job_record("job-1", "author")
 
@@ -39,6 +46,8 @@ class MediaStateMachineTests(unittest.TestCase):
                 runtime_payload = self._strategized_payload()
             if stage == "generation_strategy_locked":
                 runtime_payload = self._lock_payload()
+            if stage == "rollout_packaged":
+                runtime_payload = self._rollout_payload()
             record = transition_media_job(record, stage, "worker", runtime_payload=runtime_payload)
 
         self.assertEqual(record["current_stage"], MEDIA_STAGES[-1])
@@ -123,6 +132,8 @@ class MediaStateMachineTests(unittest.TestCase):
                 runtime_payload = self._strategized_payload()
             if stage == "generation_strategy_locked":
                 runtime_payload = self._lock_payload()
+            if stage == "rollout_packaged":
+                runtime_payload = self._rollout_payload()
             record = transition_media_job(record, stage, "worker", runtime_payload=runtime_payload)
 
         provenance_event = next(event for event in record["transition_log"] if event["to_stage"] == "provenance_written")
@@ -131,6 +142,24 @@ class MediaStateMachineTests(unittest.TestCase):
         self.assertEqual(provenance_event["transition_metadata"]["ratification_scope"], "publish_release")
         self.assertEqual(rollout_event["transition_metadata"]["ratification_scope"], "deploy_production")
         self.assertTrue(rollout_event["transition_metadata"]["can_invoke_level_3"])
+        self.assertEqual(
+            rollout_event["transition_metadata"]["preconditions"]["release_bundle_validation"],
+            "passed",
+        )
+
+    def test_rollout_packaged_requires_release_bundle_validation(self) -> None:
+        record = initialize_media_job_record("job-7", "author")
+
+        for stage in MEDIA_STAGES[1:-1]:
+            runtime_payload = None
+            if stage == "generation_strategized":
+                runtime_payload = self._strategized_payload()
+            if stage == "generation_strategy_locked":
+                runtime_payload = self._lock_payload()
+            record = transition_media_job(record, stage, "worker", runtime_payload=runtime_payload)
+
+        with self.assertRaises(TransitionValidationError):
+            transition_media_job(record, "rollout_packaged", "worker")
 
 
 if __name__ == "__main__":

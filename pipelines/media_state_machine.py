@@ -62,12 +62,34 @@ TRANSITION_METADATA_BY_TO_STAGE: dict[str, dict[str, Any]] = {
         "can_invoke_level_3": True,
         "ratification_scope": "deploy_production",
         "level_3_actions": ("deploy_production", "merge_pr_main"),
+        "preconditions": {
+            "release_bundle_validation": "passed",
+        },
     },
 }
 
 class TransitionValidationError(ValueError):
     """Raised when a transition request violates state machine rules."""
 
+
+
+
+def _validate_rollout_runtime_payload(runtime_payload: dict[str, Any] | None) -> None:
+    if not isinstance(runtime_payload, dict):
+        raise TransitionValidationError(
+            "runtime_payload must be a dict for stage 'rollout_packaged'"
+        )
+
+    if runtime_payload.get("release_bundle_validation") != "passed":
+        raise TransitionValidationError(
+            "rollout_packaged requires release_bundle_validation='passed'"
+        )
+
+    artifact_ref = runtime_payload.get("release_bundle_artifact_ref")
+    if not isinstance(artifact_ref, str) or not artifact_ref:
+        raise TransitionValidationError(
+            "rollout_packaged requires runtime_payload.release_bundle_artifact_ref"
+        )
 
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
@@ -158,6 +180,8 @@ def transition_media_job(
         )
 
     _validate_runtime_payload_for_stage(to_stage, runtime_payload)
+    if to_stage == "rollout_packaged":
+        _validate_rollout_runtime_payload(runtime_payload)
 
     new_record = deepcopy(media_job_record)
     new_record["current_stage"] = to_stage
