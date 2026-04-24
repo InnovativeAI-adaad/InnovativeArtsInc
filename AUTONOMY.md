@@ -51,7 +51,60 @@
 
 ---
 
-## 2. Scheduling
+## 2. Runtime Policy Block (Machine-Readable)
+
+The following block is parsed by runtime policy loaders. Keep the markers and header stable:
+
+- Start marker: `POLICY_START`
+- End marker: `POLICY_END`
+- Header fields (strict order): `action_id|risk_level|requires_human_ratification|abort_mode`
+
+```text
+POLICY_START
+action_id|risk_level|requires_human_ratification|abort_mode
+read_repo|low|false|continue
+list_branches|low|false|continue
+read_issue|low|false|continue
+classify_issue|low|false|continue
+assign_labels|low|false|continue
+comment_on_issue|low|false|continue
+comment_on_pr|low|false|continue
+search_github|low|false|continue
+run_tests|low|false|continue
+lint_code|low|false|continue
+create_issue|low|false|continue
+read_agent_log|low|false|continue
+write_agent_log|low|false|continue
+create_branch|medium|false|quarantine
+commit_files|medium|false|quarantine
+open_pr_draft|medium|false|quarantine
+review_code|medium|false|quarantine
+close_issue|medium|false|quarantine
+merge_pr_dev_staging|medium|false|quarantine
+draft_release|medium|false|quarantine
+send_email_owner|medium|false|quarantine
+generate_readme|medium|false|quarantine
+explain_code|medium|false|quarantine
+catalog_music|medium|false|quarantine
+generate_metadata|medium|false|quarantine
+tag_audio|medium|false|quarantine
+read_brief|medium|false|quarantine
+web_search_trends|medium|false|quarantine
+draft_press_release|medium|false|quarantine
+generate_social_drafts|medium|false|quarantine
+merge_pr_main|high|true|hard_stop
+deploy_production|high|true|hard_stop
+modify_secrets_or_env|high|true|hard_stop
+delete_branch_or_file|high|true|hard_stop
+modify_ci_cd|high|true|hard_stop
+publish_release|high|true|hard_stop
+modify_governance_docs|high|true|hard_stop
+POLICY_END
+```
+
+---
+
+## 3. Scheduling
 
 Agents may operate on these schedules without per-run approval:
 
@@ -80,7 +133,7 @@ schedules:
 
 ---
 
-## 3. Constraints & Guardrails
+## 4. Constraints & Guardrails
 
 ```
 - NEVER include credentials, tokens, or secrets in any output.
@@ -94,13 +147,13 @@ schedules:
 
 ---
 
-## 4. Conflict Resolution
+## 5. Conflict Resolution
 
 If tier statements diverge between `AUTONOMY.md`, `AGENT.md`, and `WORKFLOWS.md`, resolve using this document. **`AUTONOMY.md` is normative and wins all tier conflicts.**
 
 ---
 
-## 5. Review Gate
+## 6. Review Gate
 
 When a PR edits **any** of `AUTONOMY.md`, `AGENT.md`, or `WORKFLOWS.md`, reviewers must run a **tier-diff check** to confirm action names and tier assignments remain aligned with this canonical matrix.
 

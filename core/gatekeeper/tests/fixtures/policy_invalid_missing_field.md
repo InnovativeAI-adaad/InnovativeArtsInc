@@ -1,0 +1,4 @@
+POLICY_START
+action_id|risk_level|requires_human_ratification|abort_mode
+read_repo|low|false
+POLICY_END
