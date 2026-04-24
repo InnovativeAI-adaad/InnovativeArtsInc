@@ -288,6 +288,85 @@ def _validate_provenance_ref(ref: Any) -> None:
             raise ValueError("provenanceRef.uri must be a non-empty string when provided")
 
 
+def _stage_requires_generation_fields(stage: str) -> bool:
+    return bool(re.match(r"^(generation($|/)|mix($|/)|master($|/)|rollout($|/)|publish($|/)|distribution($|/)|release($|/))", stage))
+
+
+def _validate_generation_config(config: Any) -> None:
+    if not isinstance(config, dict):
+        raise ValueError("generation_config must be an object")
+    allowed = {"model_id", "prompt_template_version", "seed", "creativity_profile", "style_constraints"}
+    extras = set(config.keys()) - allowed
+    if extras:
+        raise ValueError(f"generation_config has unexpected fields: {sorted(extras)}")
+    missing = [field for field in ("model_id", "prompt_template_version", "seed", "creativity_profile", "style_constraints") if field not in config]
+    if missing:
+        raise ValueError(f"generation_config missing required fields: {missing}")
+
+    model_id = config.get("model_id")
+    if not isinstance(model_id, str) or not model_id:
+        raise ValueError("generation_config.model_id must be a non-empty string")
+    prompt_template_version = config.get("prompt_template_version")
+    if not isinstance(prompt_template_version, str) or not prompt_template_version:
+        raise ValueError("generation_config.prompt_template_version must be a non-empty string")
+    seed = config.get("seed")
+    if not isinstance(seed, (int, str)) or (isinstance(seed, str) and not seed):
+        raise ValueError("generation_config.seed must be an integer or non-empty string")
+
+    creativity_profile = config.get("creativity_profile")
+    if isinstance(creativity_profile, str):
+        if creativity_profile not in {"conservative", "balanced", "exploratory"}:
+            raise ValueError("generation_config.creativity_profile string must be one of ['balanced', 'conservative', 'exploratory']")
+    elif isinstance(creativity_profile, dict):
+        allowed_creativity_fields = {"name", "temperature", "top_p"}
+        creativity_extras = set(creativity_profile.keys()) - allowed_creativity_fields
+        if creativity_extras:
+            raise ValueError(f"generation_config.creativity_profile has unexpected fields: {sorted(creativity_extras)}")
+        if not isinstance(creativity_profile.get("name"), str) or not creativity_profile["name"]:
+            raise ValueError("generation_config.creativity_profile.name must be a non-empty string")
+        if "temperature" in creativity_profile:
+            temperature = creativity_profile["temperature"]
+            if not isinstance(temperature, (int, float)) or temperature < 0:
+                raise ValueError("generation_config.creativity_profile.temperature must be a number >= 0 when provided")
+        if "top_p" in creativity_profile:
+            top_p = creativity_profile["top_p"]
+            if not isinstance(top_p, (int, float)) or top_p < 0 or top_p > 1:
+                raise ValueError("generation_config.creativity_profile.top_p must be a number between 0 and 1 when provided")
+    else:
+        raise ValueError("generation_config.creativity_profile must be a recognized string or object")
+
+    style_constraints = config.get("style_constraints")
+    if not isinstance(style_constraints, list) or not style_constraints:
+        raise ValueError("generation_config.style_constraints must be a non-empty array of strings")
+    if not all(isinstance(item, str) and item for item in style_constraints):
+        raise ValueError("generation_config.style_constraints must contain only non-empty strings")
+
+
+def _validate_uniqueness_report(report: Any) -> None:
+    if not isinstance(report, dict):
+        raise ValueError("uniqueness_report must be an object")
+    allowed = {"novelty_score", "similarity_method", "max_similarity_observed", "decision"}
+    extras = set(report.keys()) - allowed
+    if extras:
+        raise ValueError(f"uniqueness_report has unexpected fields: {sorted(extras)}")
+    missing = [field for field in ("novelty_score", "similarity_method", "max_similarity_observed", "decision") if field not in report]
+    if missing:
+        raise ValueError(f"uniqueness_report missing required fields: {missing}")
+
+    novelty_score = report.get("novelty_score")
+    if not isinstance(novelty_score, (int, float)) or novelty_score < 0 or novelty_score > 1:
+        raise ValueError("uniqueness_report.novelty_score must be a number between 0 and 1")
+    similarity_method = report.get("similarity_method")
+    if not isinstance(similarity_method, str) or not similarity_method:
+        raise ValueError("uniqueness_report.similarity_method must be a non-empty string")
+    max_similarity_observed = report.get("max_similarity_observed")
+    if not isinstance(max_similarity_observed, (int, float)) or max_similarity_observed < 0:
+        raise ValueError("uniqueness_report.max_similarity_observed must be a number >= 0")
+    decision = report.get("decision")
+    if decision not in {"pass", "revise", "block"}:
+        raise ValueError("uniqueness_report.decision must be one of ['block', 'pass', 'revise']")
+
+
 def validate_job_record_schema(record: dict[str, Any], schema: dict[str, Any]) -> None:
     required = set(schema.get("required", []))
     allowed = set(schema.get("properties", {}).keys())
@@ -335,6 +414,13 @@ def validate_job_record_schema(record: dict[str, Any], schema: dict[str, Any]) -
     for provenance_ref in provenance_refs:
         _validate_provenance_ref(provenance_ref)
 
+    stage = record["stage"]
+    if _stage_requires_generation_fields(stage):
+        if "generation_config" not in record or "uniqueness_report" not in record:
+            raise ValueError("generation_config and uniqueness_report are required for stage at/after generation")
+        _validate_generation_config(record["generation_config"])
+        _validate_uniqueness_report(record["uniqueness_report"])
+
 
 def build_job_record(
     manifest_path: Path,
@@ -374,6 +460,21 @@ def build_job_record(
             _provenance_ref("validation_result", "all_required_checks_passed", str(results["all_required_checks_passed"]).lower()),
             _provenance_ref("tracks_evaluated", str(len(results["track_results"]))),
         ],
+        "generation_config": {
+            "model_id": "validation-gate/no-generation",
+            "prompt_template_version": "n/a",
+            "seed": "n/a",
+            "creativity_profile": "conservative",
+            "style_constraints": [
+                "no-new-generation"
+            ],
+        },
+        "uniqueness_report": {
+            "novelty_score": 1.0,
+            "similarity_method": "validation-gate/no-generated-content",
+            "max_similarity_observed": 0.0,
+            "decision": "pass",
+        },
     }
 
 
