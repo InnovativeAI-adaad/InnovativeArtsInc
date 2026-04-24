@@ -235,7 +235,58 @@ For any workflow step that interacts with MCP authorization:
 
 ---
 
-## 5. Workflow Logging
+
+## 5. Periodic Documentation Consistency Pass
+
+### 🧾 WF-009 · Documentation Consistency Pass
+
+**Trigger:** Scheduled — first business day of each month at 15:00 UTC (or any PR touching constitutional/agent docs)  
+**Level:** 🟡 2  
+
+```yaml
+steps:
+  1. read_repo                # L1
+  2. review_code              # L2
+  3. write_agent_log          # L1
+
+checks:
+  - action_name_consistency:
+      description: >
+        Verify action names referenced in AGENT.md, TOOLS.md, and WORKFLOWS.md
+        are aligned to canonical action names in AUTONOMY.md.
+      required_result: no mismatches
+  - mcp_reference_consistency:
+      description: >
+        Verify MCP server IDs/endpoints/status references in MCP_SERVERS.md do not
+        conflict with MCP_REGISTRY.md (registry is authoritative).
+      required_result: no conflicting entries
+  - path_integrity:
+      description: >
+        Verify all referenced files/paths in these docs exist in-repo.
+      required_result: all referenced paths resolvable
+  - constitutional_ownership_constraints:
+      description: >
+        Verify ownership/edit constraints remain explicit for constitutional docs:
+        AGENT.md, AUTONOMY.md, SECURITY.md, and GOVERNANCE.md.
+      required_result: constraints explicitly documented and non-ambiguous
+
+rollback:
+  - If any check fails: open a docs remediation PR/issue, label `docs-governance`, and block merge until resolved.
+```
+
+### Reviewer Checklist (PR-Ready)
+
+Use this checklist for PR review when docs in scope are changed:
+
+- [ ] **Action matrix parity:** action names in `AGENT.md`, `TOOLS.md`, and `WORKFLOWS.md` match canonical names in `AUTONOMY.md`.
+- [ ] **MCP parity:** no conflicting MCP server references between `MCP_SERVERS.md` and `MCP_REGISTRY.md`; registry remains authoritative.
+- [ ] **Path validity:** every referenced file/path exists at review time.
+- [ ] **Constitutional ownership clarity:** ownership/edit constraints for `AGENT.md`, `AUTONOMY.md`, `SECURITY.md`, and `GOVERNANCE.md` are explicit.
+- [ ] **Drift handling:** if any item fails, PR includes remediation commit or linked follow-up issue before approval.
+
+---
+
+## 6. Workflow Logging
 
 Every workflow execution appends to `AGENT_LOG.md`:
 
