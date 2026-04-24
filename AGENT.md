@@ -152,3 +152,5 @@ The agent will cease all scheduled and triggered operations within one cycle.
 ---
 
 *Last updated by: Dustin L. Reid | Auto-maintained by ADAAD-Agent (Level 1)*
+
+*Changelog: Terminology normalization — verified trigger/action table uses `AUTONOMY.md` §1 canonical action identifiers.*
