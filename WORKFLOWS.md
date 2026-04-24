@@ -105,20 +105,45 @@ rollback:
 
 ### 🎵 WF-005 · Music Catalog Update (InnovativeArts)
 
-**Trigger:** New files pushed to `music/` directory  
+**Trigger:** New files pushed to `projects/jrt/audio/` or `projects/jrt/metadata/`  
 **Level:** 🟡 2  
 
 ```yaml
 steps:
-  1. read_repo         # Detect new audio/metadata files
-  2. catalog_music     # Extract and store track metadata
-  3. generate_metadata # Write AI-generated descriptions
-  4. tag_audio         # Apply ID3 tags if missing
-  5. create_issue      # "New tracks added: [list]"
-  6. write_agent_log   # Record catalog update
+  1. read_repo            # Detect new files under projects/jrt/audio and projects/jrt/metadata
+     owner: MediaAgent
+  2. sync_metadata_index  # Sync/update metadata index from projects/jrt/metadata before ingest
+     owner: MediaAgent
+  3. validate_ingest_tree # Ensure each audio asset has a matching metadata file before ingest
+     owner: MediaAgent
+  4. verify_schema_links  # Require planned schemas:
+                          # - projects/jrt/metadata/schema/track.schema.json
+                          # - projects/jrt/metadata/schema/provenance.schema.json
+                          # - projects/jrt/metadata/schema/ingest-summary.schema.json
+                          # If any schema is missing, block ingest to prevent orphan assets
+     owner: MediaAgent
+  5. catalog_music        # Extract and store track metadata
+     owner: MediaAgent
+  6. tag_audio            # Apply ID3 tags if missing
+     owner: MediaAgent
+  7. package_rollout      # Build rollout package for downstream distribution
+     owner: DeploymentAgent
+  8. update_provenance    # Write source lineage and audio fingerprint/provenance references
+     owner: IPAgent
+  9. write_artifacts      # Required per run:
+                          # - update track manifest
+                          # - update provenance/log
+                          # - append ingest summary entry
+     owner: IPAgent
+ 10. create_issue         # "New tracks added: [list]"
+     owner: MediaAgent
+ 11. write_agent_log      # Record catalog update and artifact paths
+     owner: MediaAgent
 
 rollback:
-  - If file format unsupported: create issue with details
+  - If unsupported file type is detected in projects/jrt/audio/: skip ingest for that file, create issue, and log rollback action with path + MIME type
+  - If expected metadata file is missing under projects/jrt/metadata/: stop ingest batch, create issue, and mark run as blocked (no partial ingest)
+  - If planned schema files are missing: fail fast before catalog step and record "orphan-asset prevention gate tripped"
 ```
 
 ---
