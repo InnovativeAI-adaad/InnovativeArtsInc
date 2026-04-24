@@ -1,0 +1,57 @@
+{
+  "version": "1.0.0",
+  "required_checks": [
+    "loudness_bounds",
+    "clipping",
+    "metadata_completeness",
+    "lyric_structure"
+  ],
+  "transition_gate": {
+    "target_stage": "rollout/platform_assets",
+    "require_all_required_checks_pass": true
+  },
+  "loudness_bounds": {
+    "enabled": true,
+    "required": true,
+    "integrated_lufs": {
+      "min": -16.0,
+      "max": -9.0
+    },
+    "max_true_peak_dbfs": -1.0,
+    "allow_missing_metrics": false
+  },
+  "clipping": {
+    "enabled": true,
+    "required": true,
+    "max_clipped_samples": 0,
+    "allow_missing_metrics": false
+  },
+  "metadata_completeness": {
+    "enabled": true,
+    "required": true,
+    "required_track_fields": [
+      "id",
+      "title",
+      "version",
+      "status",
+      "assets"
+    ],
+    "required_asset_fields": [
+      "audio",
+      "lyrics"
+    ],
+    "require_asset_paths_to_exist": true,
+    "minimum_completeness_ratio": 1.0
+  },
+  "lyric_structure": {
+    "enabled": true,
+    "required": true,
+    "required_sections": [
+      "verse",
+      "chorus"
+    ],
+    "minimum_non_empty_lines": 8,
+    "allow_missing_lyrics_file": false,
+    "match_strategy": "heading_or_tag"
+  }
+}
