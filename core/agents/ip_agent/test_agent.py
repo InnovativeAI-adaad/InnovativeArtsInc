@@ -151,6 +151,9 @@ class IPAgentSimilarityPolicyTests(unittest.TestCase):
         block: float = 0.9,
         version: str = "1.0.0",
         methods: dict | None = None,
+        decision_policy: str = "max_similarity",
+        method_weights: dict[str, float] | None = None,
+        required_methods: dict[str, bool] | None = None,
     ) -> str:
         temp_dir = tempfile.mkdtemp(prefix="ip-policy-")
         path = Path(temp_dir) / "policy.json"
@@ -171,15 +174,27 @@ class IPAgentSimilarityPolicyTests(unittest.TestCase):
                 "required_for_release_intent": True,
             },
         }
+
+        normalized_methods = {
+            method_name: dict(method_config)
+            for method_name, method_config in policy_methods.items()
+        }
+        if required_methods:
+            for method_name, is_required in required_methods.items():
+                if method_name in normalized_methods:
+                    normalized_methods[method_name]["required_for_release_intent"] = is_required
+
+        normalized_method_weights = method_weights or {}
+
         path.write_text(
             json.dumps(
                 {
                     "version": version,
                     "decision_policy": decision_policy,
-                    "method_weights": method_weights or {},
+                    "method_weights": normalized_method_weights,
                     "confidence_floor": 0.3,
                     "thresholds": {"revise": revise, "block": block},
-                    "methods": policy_methods,
+                    "methods": normalized_methods,
                 }
             ),
             encoding="utf-8",
@@ -190,6 +205,17 @@ class IPAgentSimilarityPolicyTests(unittest.TestCase):
         fd, path_str = tempfile.mkstemp(prefix="ip-prov-", suffix=".jsonl")
         Path(path_str).write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
         return path_str
+
+    def test_policy_file_emits_decision_policy_and_method_weights(self) -> None:
+        policy_path = self._policy_file(
+            decision_policy="weighted_mean",
+            method_weights={"metadata": 0.7, "embedding": 0.3},
+        )
+
+        policy_payload = json.loads(Path(policy_path).read_text(encoding="utf-8"))
+
+        self.assertEqual(policy_payload["decision_policy"], "weighted_mean")
+        self.assertEqual(policy_payload["method_weights"], {"metadata": 0.7, "embedding": 0.3})
 
     def test_run_similarity_audit_boundary_values(self) -> None:
         policy_path = self._policy_file(revise=0.5, block=1.0)
