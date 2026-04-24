@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import math
+import re
 
 
 @dataclass(frozen=True)
@@ -40,14 +42,24 @@ class AttributionLayer:
             raise ValueError("release_id must be non-empty")
         if not entry.currency.strip():
             raise ValueError("currency must be non-empty")
+        if not math.isfinite(entry.amount):
+            raise ValueError("amount must be finite")
+
+        currency = entry.currency.strip()
+        if currency != currency.upper() or not re.fullmatch(r"[A-Z]{3}", currency):
+            raise ValueError("currency must be an uppercase ISO-style code")
+
         self._ledger.setdefault(entry.release_id, []).append(entry)
 
     def attributed_summary(self, release_id: str) -> dict[str, object]:
         release_events = [event for event in self._events if event.release_id == release_id]
         ledger_entries = self._ledger.get(release_id, [])
-        total_revenue = sum(entry.amount for entry in ledger_entries)
 
-        return {
+        totals_by_currency: dict[str, float] = {}
+        for entry in ledger_entries:
+            totals_by_currency[entry.currency] = totals_by_currency.get(entry.currency, 0.0) + entry.amount
+
+        summary: dict[str, object] = {
             "release_id": release_id,
             "event_count": len(release_events),
             "events": [
@@ -68,5 +80,10 @@ class AttributionLayer:
                 }
                 for entry in ledger_entries
             ],
-            "total_revenue": total_revenue,
+            "totals_by_currency": totals_by_currency,
         }
+
+        if len(totals_by_currency) == 1:
+            summary["total_revenue"] = next(iter(totals_by_currency.values()))
+
+        return summary
