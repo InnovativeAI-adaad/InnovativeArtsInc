@@ -145,31 +145,46 @@ class IPAgentTelemetryTests(unittest.TestCase):
 
 
 class IPAgentSimilarityPolicyTests(unittest.TestCase):
-    def _policy_file(self, revise: float = 0.75, block: float = 0.9, version: str = "1.0.0") -> str:
+    def _policy_file(
+        self,
+        revise: float = 0.75,
+        block: float = 0.9,
+        version: str = "1.0.0",
+        *,
+        decision_policy: str = "max_similarity",
+        method_weights: dict[str, float] | None = None,
+        required_methods: dict[str, bool] | None = None,
+    ) -> str:
         temp_dir = tempfile.mkdtemp(prefix="ip-policy-")
         path = Path(temp_dir) / "policy.json"
+        required_methods = required_methods or {
+            "metadata": True,
+            "fingerprint": True,
+            "embedding": True,
+        }
         path.write_text(
             json.dumps(
                 {
                     "version": version,
-                    "decision_policy": "max_similarity",
+                    "decision_policy": decision_policy,
+                    "method_weights": method_weights or {},
                     "confidence_floor": 0.3,
                     "thresholds": {"revise": revise, "block": block},
                     "methods": {
                         "metadata": {
                             "version": "1.0.0",
                             "model_id": "jaccard-v1",
-                            "required_for_release_intent": True,
+                            "required_for_release_intent": bool(required_methods.get("metadata")),
                         },
                         "fingerprint": {
                             "version": "1.0.0",
                             "model_id": "fingerprint-v1",
-                            "required_for_release_intent": True,
+                            "required_for_release_intent": bool(required_methods.get("fingerprint")),
                         },
                         "embedding": {
                             "version": "1.0.0",
                             "model_id": "embedding-v1",
-                            "required_for_release_intent": True,
+                            "required_for_release_intent": bool(required_methods.get("embedding")),
                         },
                     },
                 }
@@ -234,6 +249,103 @@ class IPAgentSimilarityPolicyTests(unittest.TestCase):
         )
         self.assertEqual(block_result["decision"], "block")
         self.assertAlmostEqual(block_result["max_similarity"], 1.0, places=6)
+
+    def test_run_similarity_audit_required_methods_all_pass_release_intent_enforcement(self) -> None:
+        policy_path = self._policy_file(
+            revise=0.5,
+            block=0.9,
+            decision_policy="required_methods_all_pass",
+            required_methods={"metadata": True, "fingerprint": False, "embedding": False},
+        )
+        provenance = self._provenance_file(
+            [
+                {
+                    "job_id": "prior-1",
+                    "track_id": "track-prior-1",
+                    "render_metadata": {"prompt": "different"},
+                    "audio_fingerprint": [1.0, 0.0],
+                    "embedding": [0.0, 1.0],
+                }
+            ]
+        )
+
+        result = agent.run_similarity_audit(
+            {
+                "job_id": "job-required-pass",
+                "release_intent": True,
+                "similarity_policy_path": policy_path,
+                "provenance_log_path": provenance,
+                "render_metadata": {"prompt": "unique"},
+                "audio_fingerprint": [1.0, 0.0],
+                "embedding": [0.0, 1.0],
+            }
+        )
+        self.assertEqual(result["decision"], "pass")
+        self.assertAlmostEqual(result["max_similarity"], 1.0, places=6)
+        self.assertEqual(result["audit_artifact"]["decision_rationale"]["policy_mode"], "required_methods_all_pass")
+        self.assertEqual(result["audit_artifact"]["decision_rationale"]["required_method_breaches"], [])
+
+    def test_run_similarity_audit_weighted_mean_mode(self) -> None:
+        policy_path = self._policy_file(
+            revise=0.5,
+            block=0.9,
+            decision_policy="weighted_mean",
+            method_weights={"metadata": 0.2, "fingerprint": 0.4, "embedding": 0.4},
+        )
+        provenance = self._provenance_file(
+            [
+                {
+                    "job_id": "prior-1",
+                    "track_id": "track-prior-1",
+                    "render_metadata": {"prompt": "same"},
+                    "audio_fingerprint": [1.0, 0.0],
+                    "embedding": [1.0, 0.0],
+                }
+            ]
+        )
+
+        result = agent.run_similarity_audit(
+            {
+                "job_id": "job-weighted",
+                "similarity_policy_path": policy_path,
+                "provenance_log_path": provenance,
+                "render_metadata": {"prompt": "same"},
+                "audio_fingerprint": [0.0, 1.0],
+                "embedding": [0.0, 1.0],
+            }
+        )
+        self.assertEqual(result["decision"], "pass")
+        self.assertAlmostEqual(result["max_similarity"], 0.2, places=6)
+        self.assertEqual(result["audit_artifact"]["decision_rationale"]["policy_mode"], "weighted_mean")
+        self.assertEqual(len(result["audit_artifact"]["decision_rationale"]["contributing_methods"]), 3)
+
+    def test_run_similarity_audit_unknown_policy_defaults_to_max_similarity(self) -> None:
+        policy_path = self._policy_file(revise=0.5, block=0.9, decision_policy="unknown_mode")
+        provenance = self._provenance_file(
+            [
+                {
+                    "job_id": "prior-1",
+                    "track_id": "track-prior-1",
+                    "render_metadata": {"prompt": "same"},
+                    "audio_fingerprint": [0.0, 1.0],
+                    "embedding": [0.0, 1.0],
+                }
+            ]
+        )
+
+        result = agent.run_similarity_audit(
+            {
+                "job_id": "job-fallback",
+                "similarity_policy_path": policy_path,
+                "provenance_log_path": provenance,
+                "render_metadata": {"prompt": "same"},
+                "audio_fingerprint": [0.0, 1.0],
+                "embedding": [0.0, 1.0],
+            }
+        )
+        self.assertEqual(result["decision"], "block")
+        self.assertAlmostEqual(result["max_similarity"], 1.0, places=6)
+        self.assertTrue(result["audit_artifact"]["decision_rationale"]["fallback_to_max_similarity"])
 
     @patch("core.agents.ip_agent.agent.append_stage_metric")
     @patch("core.agents.ip_agent.agent.append_provenance_entries")
