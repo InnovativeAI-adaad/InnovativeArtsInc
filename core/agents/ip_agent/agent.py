@@ -41,6 +41,7 @@ class SimilarityPolicy:
     confidence_floor: float
     decision_policy: str
     configured_methods: tuple[str, ...]
+    method_weights: dict[str, float]
     required_methods_release_intent: set[str]
     strategy_versions: dict[str, str]
     strategy_model_ids: dict[str, str | None]
@@ -291,16 +292,38 @@ def _load_similarity_policy(payload: dict) -> SimilarityPolicy:
     thresholds = raw_policy.get("thresholds") or {}
     methods = raw_policy.get("methods") or {}
     configured_methods = tuple(methods.keys())
+    raw_method_weights = raw_policy.get("method_weights") or {}
     unknown_methods = sorted(set(configured_methods) - set(STRATEGY_REGISTRY))
     if unknown_methods:
         raise ValueError(
             "Similarity policy defines unsupported methods: " + ", ".join(unknown_methods)
         )
+    if not isinstance(raw_method_weights, dict):
+        raise ValueError("Similarity policy method_weights must be an object")
+
+    unknown_weight_methods = sorted(set(raw_method_weights) - set(configured_methods))
+    if unknown_weight_methods:
+        raise ValueError(
+            "Similarity policy method_weights defines unknown methods: " + ", ".join(unknown_weight_methods)
+        )
+
+    method_weights: dict[str, float] = {}
+    for name, weight in raw_method_weights.items():
+        if not isinstance(weight, (int, float)):
+            raise ValueError(f"Similarity policy method_weights.{name} must be numeric")
+        numeric_weight = float(weight)
+        if numeric_weight < 0:
+            raise ValueError(f"Similarity policy method_weights.{name} must be non-negative")
+        method_weights[name] = numeric_weight
+
+    decision_policy = str(raw_policy.get("decision_policy", "max_similarity"))
+    if decision_policy == "weighted_mean" and not any(weight > 0 for weight in method_weights.values()):
+        raise ValueError(
+            "Similarity policy weighted_mean requires at least one positive method_weights value"
+        )
+
     required_methods = {
         name for name, method_cfg in methods.items() if bool((method_cfg or {}).get("required_for_release_intent"))
-    }
-    method_weights = {
-        name: float(weight) for name, weight in raw_method_weights.items() if isinstance(weight, (int, float))
     }
     strategy_versions = {name: str((cfg or {}).get("version", "unknown")) for name, cfg in methods.items()}
     strategy_model_ids = {name: (cfg or {}).get("model_id") for name, cfg in methods.items()}
@@ -311,8 +334,9 @@ def _load_similarity_policy(payload: dict) -> SimilarityPolicy:
         revise_threshold=float(thresholds.get("revise")),
         block_threshold=float(thresholds.get("block")),
         confidence_floor=float(raw_policy.get("confidence_floor", 0.0)),
-        decision_policy=str(raw_policy.get("decision_policy", "max_similarity")),
+        decision_policy=decision_policy,
         configured_methods=configured_methods,
+        method_weights=method_weights,
         required_methods_release_intent=required_methods,
         strategy_versions=strategy_versions,
         strategy_model_ids=strategy_model_ids,
