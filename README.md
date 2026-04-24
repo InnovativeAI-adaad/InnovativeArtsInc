@@ -43,7 +43,7 @@ git clone https://github.com/InnovativeAI-adaad/InnovativeArtsInc.git
 cd InnovativeArtsInc
 ```
 
-More setup instructions coming as the project develops.
+Initialize the repository scaffold with `./init_engine.sh`, then use the `pipelines/`, `core/`, and `projects/jrt/` paths described below as the active working structure.
 
 ---
 
