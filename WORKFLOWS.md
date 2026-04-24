@@ -186,19 +186,18 @@ To define a new workflow:
 
 ---
 
-## 4. Conflict Resolution
+## 4. Gate IAI-G2 Validation Checklist (MCP)
 
-If tier statements diverge between `WORKFLOWS.md`, `AGENT.md`, and `AUTONOMY.md`, `AUTONOMY.md` is authoritative and must be used for all tier decisions.
+For any workflow step that interacts with MCP authorization:
+
+- [ ] Read `MCP_REGISTRY.md` directly during Gate IAI-G2 validation.
+- [ ] Do **not** read `MCP_SERVERS.md` for authorization, scope, endpoint, tier, or approval enforcement decisions.
+- [ ] If `MCP_SERVERS.md` and `MCP_REGISTRY.md` differ, treat `MCP_REGISTRY.md` as authoritative override.
+- [ ] Block execution when server status is not `active` in `MCP_REGISTRY.md`.
 
 ---
 
-## 5. Review Gate
-
-Any edit to `WORKFLOWS.md`, `AGENT.md`, or `AUTONOMY.md` requires a **tier-diff check** in review to verify no action/tier drift from the canonical matrix.
-
----
-
-## 6. Workflow Logging
+## 5. Workflow Logging
 
 Every workflow execution appends to `AGENT_LOG.md`:
 
