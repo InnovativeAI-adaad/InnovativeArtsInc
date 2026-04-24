@@ -431,6 +431,49 @@ class IPAgentSimilarityPolicyTests(unittest.TestCase):
         self.assertEqual(strategies[0].version, "9.9.9")
         self.assertEqual(strategies[0].model_id, "embedding-v99")
 
+    def test_load_similarity_policy_accepts_valid_weighted_policy(self) -> None:
+        policy_path = self._policy_file(
+            decision_policy="weighted_mean",
+            method_weights={"metadata": 0.2, "embedding": 0.8, "fingerprint": 0.0},
+        )
+
+        policy = agent._load_similarity_policy({"similarity_policy_path": policy_path})
+
+        self.assertEqual(policy.decision_policy, "weighted_mean")
+        self.assertEqual(policy.method_weights, {"metadata": 0.2, "embedding": 0.8, "fingerprint": 0.0})
+
+    def test_load_similarity_policy_raises_for_unknown_weight_method(self) -> None:
+        policy_path = self._policy_file(
+            decision_policy="weighted_mean",
+            method_weights={"metadata": 1.0, "unknown_method": 0.5},
+        )
+
+        with self.assertRaisesRegex(ValueError, "method_weights defines unknown methods: unknown_method"):
+            agent._load_similarity_policy({"similarity_policy_path": policy_path})
+
+    def test_load_similarity_policy_raises_for_weighted_mean_zero_or_negative_weights(self) -> None:
+        zero_path = self._policy_file(
+            decision_policy="weighted_mean",
+            method_weights={"metadata": 0.0, "fingerprint": 0.0, "embedding": 0.0},
+        )
+        with self.assertRaisesRegex(ValueError, "requires at least one positive method_weights value"):
+            agent._load_similarity_policy({"similarity_policy_path": zero_path})
+
+        negative_path = self._policy_file(
+            decision_policy="weighted_mean",
+            method_weights={"metadata": -0.1},
+        )
+        with self.assertRaisesRegex(ValueError, "method_weights.metadata must be non-negative"):
+            agent._load_similarity_policy({"similarity_policy_path": negative_path})
+
+    def test_load_similarity_policy_allows_missing_method_weights_for_non_weighted_policies(self) -> None:
+        policy_path = self._policy_file(decision_policy="max_similarity")
+
+        policy = agent._load_similarity_policy({"similarity_policy_path": policy_path})
+
+        self.assertEqual(policy.decision_policy, "max_similarity")
+        self.assertEqual(policy.method_weights, {})
+
     def test_load_similarity_policy_raises_for_unknown_method(self) -> None:
         policy_path = self._policy_file(
             methods={
