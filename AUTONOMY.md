@@ -36,6 +36,8 @@
 | `explain_code` | 🟡 2 | Log + notify owner | Docstrings/comments generation. |
 | `catalog_music` | 🟡 2 | Log + notify owner | Parse/index music metadata. |
 | `generate_metadata` | 🟡 2 | Log + notify owner | AI metadata drafts. |
+| `verify_uniqueness_strategy` | 🟡 2 | Log + notify owner | Pre-generation novelty and guardrail decision gate. |
+| `generate_music` | 🟡 2 | Log + notify owner | Execute provider-backed auditable music generation. |
 | `tag_audio` | 🟡 2 | Log + notify owner | Apply/repair ID3 tags. |
 | `read_brief` | 🟡 2 | Log + notify owner | Parse owner campaign brief. |
 | `web_search_trends` | 🟡 2 | Log + notify owner | Research-only web lookup. |
@@ -87,6 +89,8 @@ generate_readme|medium|false|quarantine
 explain_code|medium|false|quarantine
 catalog_music|medium|false|quarantine
 generate_metadata|medium|false|quarantine
+verify_uniqueness_strategy|medium|false|quarantine
+generate_music|medium|false|quarantine
 tag_audio|medium|false|quarantine
 read_brief|medium|false|quarantine
 web_search_trends|medium|false|quarantine
