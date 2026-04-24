@@ -2,6 +2,36 @@
 
 This index maps governance and operational documentation by authority level, audience, and usage trigger.
 
+## Start Here by Role
+
+### New contributor
+1. [`README.md`](./README.md) — repo orientation, quickstart, and layout.
+2. [`DOCS_INDEX.md`](./DOCS_INDEX.md) — canonical map for where each policy or procedure lives.
+3. [`AGENT.md`](./AGENT.md) and [`AUTONOMY.md`](./AUTONOMY.md) — identity directives and permission tiers.
+4. [`WORKFLOWS.md`](./WORKFLOWS.md) and [`TOOLS.md`](./TOOLS.md) — execution flow and available tooling.
+5. [`SECURITY.md`](./SECURITY.md) and [`GOVERNANCE.md`](./GOVERNANCE.md) — required security and authority constraints.
+
+### Operator
+1. [`DOCS_INDEX.md`](./DOCS_INDEX.md) — canonical routing for policy and operational docs.
+2. [`MCP_REGISTRY.md`](./MCP_REGISTRY.md) then [`MCP_SERVERS.md`](./MCP_SERVERS.md) — authorized servers first, integration details second.
+3. [`WORKFLOWS.md`](./WORKFLOWS.md) and [`TOOLS.md`](./TOOLS.md) — workflow/tool execution alignment.
+4. [`MEMORY.md`](./MEMORY.md) — state and memory model references.
+5. [`AGENT_LOG.md`](./AGENT_LOG.md) — audit trail verification for operations and incidents.
+
+### Reviewer/auditor
+1. [`DOCS_INDEX.md`](./DOCS_INDEX.md) — canonical map for review scoping.
+2. [`GOVERNANCE.md`](./GOVERNANCE.md) and [`AUTONOMY.md`](./AUTONOMY.md) — constitutional authority and tier boundaries.
+3. [`SECURITY.md`](./SECURITY.md) and [`MCP_REGISTRY.md`](./MCP_REGISTRY.md) — control and authorization baseline.
+4. [`AGENT_LOG.md`](./AGENT_LOG.md) — immutable action evidence.
+5. [`WORKFLOWS.md`](./WORKFLOWS.md) and [`TOOLS.md`](./TOOLS.md) — behavior and control-path validation.
+
+### Owner/HUMAN-0
+1. [`DOCS_INDEX.md`](./DOCS_INDEX.md) — canonical documentation control point.
+2. [`GOVERNANCE.md`](./GOVERNANCE.md) — constitutional authority source.
+3. [`AUTONOMY.md`](./AUTONOMY.md), [`SECURITY.md`](./SECURITY.md), and [`MCP_REGISTRY.md`](./MCP_REGISTRY.md) — normative policy and authorization controls.
+4. [`AGENT.md`](./AGENT.md) and [`WORKFLOWS.md`](./WORKFLOWS.md) — agent directive and operational behavior governance.
+5. [`AGENT_LOG.md`](./AGENT_LOG.md) — audit/compliance oversight and retention process checks.
+
 | Document | Authoritativeness | Primary Audience | Edit Restrictions | Typical Usage Triggers |
 |---|---|---|---|---|
 | [`README.md`](./README.md) | Informational | owner / operator / agent / reviewer | Open contribution | First-time repo orientation, quick links, setup |
