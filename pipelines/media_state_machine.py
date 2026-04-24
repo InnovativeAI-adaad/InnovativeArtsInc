@@ -2,7 +2,7 @@
 
 Stages are linear and must progress in order:
   draft_lyrics -> refined_lyrics -> prompt_packaged -> generation_strategized
-  -> audio_generated -> audio_verified -> metadata_finalized
+  -> generation_strategy_locked -> audio_generated -> audio_verified -> metadata_finalized
   -> provenance_written -> rollout_packaged
 """
 
@@ -17,6 +17,7 @@ MEDIA_STAGES: tuple[str, ...] = (
     "refined_lyrics",
     "prompt_packaged",
     "generation_strategized",
+    "generation_strategy_locked",
     "audio_generated",
     "audio_verified",
     "metadata_finalized",
@@ -31,12 +32,23 @@ ALLOWED_RUNTIME_PAYLOAD_FIELDS_BY_STAGE: dict[str, tuple[str, ...]] = {
         "creativity_controls",
         "seed_policy",
         "novelty_threshold",
-    )
+    ),
+    "generation_strategy_locked": (
+        "proposed_prompt_hash",
+        "style_fingerprint",
+        "anti_dup_seed_policy",
+        "novelty_threshold",
+    ),
 }
 
 _ALLOWED_NEXT_STAGE: dict[str, str] = {
     MEDIA_STAGES[idx]: MEDIA_STAGES[idx + 1]
     for idx in range(len(MEDIA_STAGES) - 1)
+}
+
+
+_COMPAT_ALLOWED_NEXT_STAGES: dict[str, tuple[str, ...]] = {
+    "generation_strategized": ("generation_strategy_locked", "audio_generated"),
 }
 
 
@@ -116,15 +128,20 @@ def transition_media_job(
         raise TransitionValidationError(f"invalid target stage: {to_stage!r}")
 
     expected_next = _ALLOWED_NEXT_STAGE.get(current_stage)
-    if expected_next is None:
+    compat_next_stages = _COMPAT_ALLOWED_NEXT_STAGES.get(current_stage, ())
+    allowed_next_stages = (
+        (expected_next,) if expected_next is not None else ()
+    ) + tuple(stage for stage in compat_next_stages if stage != expected_next)
+
+    if not allowed_next_stages:
         raise TransitionValidationError(
             f"{current_stage!r} is terminal and cannot transition further"
         )
 
-    if to_stage != expected_next:
+    if to_stage not in allowed_next_stages:
         raise TransitionValidationError(
             "illegal transition requested: "
-            f"{current_stage!r} -> {to_stage!r}; expected {expected_next!r}"
+            f"{current_stage!r} -> {to_stage!r}; expected one of {allowed_next_stages!r}"
         )
 
     _validate_runtime_payload_for_stage(to_stage, runtime_payload)
