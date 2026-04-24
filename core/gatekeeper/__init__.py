@@ -1,5 +1,5 @@
-"""Gatekeeper validation primitives."""
+"""Gatekeeper primitives for policy-level action controls."""
 
-from .ratification import RatificationValidationError, validate_ratification
+from core.gatekeeper.abort import HardAbortError, hard_abort
 
-__all__ = ["RatificationValidationError", "validate_ratification"]
+__all__ = ["HardAbortError", "hard_abort"]

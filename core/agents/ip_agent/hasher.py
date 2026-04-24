@@ -8,6 +8,8 @@ import json
 from pathlib import Path
 from typing import Iterable
 
+from core.gatekeeper.abort import hard_abort
+
 
 _REGISTRY_LOG = Path("registry/provenance_log.jsonl")
 
@@ -90,6 +92,10 @@ def append_provenance_entries(
     parent_artifact_hash: str | None = None,
     retry_attempt: int = 0,
     log_path: str | Path = _REGISTRY_LOG,
+    deny_reason_code: str | None = None,
+    policy_version: str = "1.0.0",
+    correlation_id: str | None = None,
+    agent_log_path: str | Path = "AGENT_LOG.md",
 ) -> list[dict]:
     """Hash artifacts and append JSONL provenance entries.
 
@@ -99,6 +105,19 @@ def append_provenance_entries(
 
     Raises any file or I/O exceptions so callers can stop pipeline completion.
     """
+    if deny_reason_code:
+        hard_abort(
+            "level3.registry_write",
+            deny_reason_code,
+            {
+                "policy_version": policy_version,
+                "job_id": job_id,
+                "provenance_id": correlation_id or job_id,
+                "agent": agent,
+                "agent_log_path": str(agent_log_path),
+            },
+        )
+
     entries = [
         generate_provenance_entry(
             file_path,

@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Any, Callable
 from uuid import uuid4
 
-from core.gatekeeper.ratification import RatificationValidationError, validate_ratification
+from core.gatekeeper.abort import hard_abort
 
 
 CONFIG_PATH = Path("projects/jrt/metadata/agent_runtime_config.json")
@@ -153,6 +153,19 @@ def execute_with_retry_policy(
     retry_policy, failure_classes = load_runtime_config(config_path)
 
     job_id = job_payload.get("job_id") or str(uuid4())
+    if job_payload.get("deny_level3_action") or job_payload.get("deny_reason_code"):
+        hard_abort(
+            "level3.production_render",
+            str(job_payload.get("deny_reason_code", "LEVEL3_POLICY_DENIED")),
+            {
+                "policy_version": job_payload.get("policy_version", "1.0.0"),
+                "job_id": job_id,
+                "provenance_id": job_payload.get("provenance_id", job_id),
+                "agent_name": agent_name,
+                "agent_log_path": job_payload.get("agent_log_path", "AGENT_LOG.md"),
+            },
+        )
+
     attempts: list[dict[str, Any]] = []
     failed_attempt_ids: list[str] = []
 
