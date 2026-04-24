@@ -52,7 +52,8 @@ Use the following canonical byte payload for `entry_digest` HMAC input:
 2. **Line format:** `key=value` (no extra spaces).
 3. **Newline rule:** LF (`\n`) only, including one trailing LF at end of payload.
 4. **Unicode rule:** normalize each value to NFC, then UTF-8 encode.
-5. **Digest method:** `entry_digest = HMAC-SHA256(key="approved, devadaad", message=<canonical_payload_bytes>)` rendered as lowercase hex.
+5. **Digest method:** `entry_digest = HMAC-SHA256(key=<runtime secret>, message=<canonical_payload_bytes>)` rendered as lowercase hex.
+6. **Key sourcing policy:** the HMAC key must be loaded at runtime from a secure source (for example `ADAAD_HMAC_KEY` via environment injection or an external secret manager). Never store plaintext key material in repository files, examples, CI logs, or command output. Use redacted placeholders (for example `<redacted>`).
 
 Canonical payload template:
 
