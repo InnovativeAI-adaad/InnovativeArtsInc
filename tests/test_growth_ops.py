@@ -1,5 +1,12 @@
 import pytest
 
+from services.creative_planner import (
+    ArtistProfile,
+    CampaignContext,
+    CreativePlanner,
+    GenerationTrialOutcome,
+    PriorOutcome,
+)
 from services.growth_ops.attribution import AttributionLayer, CampaignEvent, MonetizationLedgerEntry
 from services.growth_ops.clip_contract import (
     CampaignMetadata,
@@ -10,6 +17,106 @@ from services.growth_ops.clip_contract import (
 from services.growth_ops.crm_connectors import AudienceRecord, ConsentStateChange, FirstPartyCRMConnector
 from services.growth_ops.experiment_runner import ExperimentRunner, ExperimentVariant, MetricEvent
 from services.growth_ops.governance import CompliancePolicy, GovernanceGuardrails, OutreachAction
+
+
+def test_creative_planner_generates_versioned_style_dna_generation_config() -> None:
+    planner = CreativePlanner(style_dna_version="v2")
+    plan = planner.generate_prompt_plan(
+        campaign_context=CampaignContext(
+            campaign_id="camp-44",
+            objective="engagement",
+            audience_segments=("fans", "new_listeners"),
+            channels=("tiktok", "ig"),
+            constraints=("brand_safe",),
+        ),
+        artist_profile=ArtistProfile(
+            artist_id="artist-1",
+            brand_voice="raw and cinematic",
+            signature_styles=("grit", "minimal"),
+            risk_tolerance=0.7,
+        ),
+        prior_outcomes=(
+            PriorOutcome(
+                strategy_id="style-a",
+                quality_pass_rate=0.8,
+                novelty_score=0.6,
+                downstream_engagement=0.5,
+            ),
+            PriorOutcome(
+                strategy_id="style-b",
+                quality_pass_rate=0.5,
+                novelty_score=0.9,
+                downstream_engagement=0.4,
+            ),
+        ),
+        generation_config={
+            "model_version": "gen-2026.04",
+            "prompt_template_version": "p3",
+            "random_seed": 7,
+            "creativity_profile": "exploratory",
+            "style_constraints": ["no-logos"],
+        },
+    )
+
+    assert plan.strategy_id == "style-a"
+    assert plan.generation_config["style_dna_fingerprint"].startswith("v2:")
+    assert plan.generation_config["style_dna_fingerprint_version"] == "v2"
+    assert plan.generation_config["planning_strategy_id"] == "style-a"
+
+
+def test_creative_planner_rewards_selection_and_promotion() -> None:
+    planner = CreativePlanner()
+
+    plan_a = planner.generate_prompt_plan(
+        campaign_context=CampaignContext(campaign_id="camp-1", objective="engagement"),
+        artist_profile=ArtistProfile(artist_id="artist-1", brand_voice="bold"),
+        prior_outcomes=(PriorOutcome("strategy-a", 0.8, 0.8, 0.9),),
+        generation_config={
+            "model_version": "gen-1",
+            "prompt_template_version": "p1",
+            "random_seed": 3,
+            "creativity_profile": "balanced",
+            "style_constraints": ["clean"],
+        },
+    )
+    plan_b = planner.generate_prompt_plan(
+        campaign_context=CampaignContext(campaign_id="camp-1", objective="engagement"),
+        artist_profile=ArtistProfile(artist_id="artist-1", brand_voice="bold"),
+        prior_outcomes=(PriorOutcome("strategy-b", 0.5, 0.3, 0.2),),
+        generation_config={
+            "model_version": "gen-1",
+            "prompt_template_version": "p1",
+            "random_seed": 4,
+            "creativity_profile": "balanced",
+            "style_constraints": ["clean"],
+        },
+    )
+
+    planner.store_generation_trial_outcome(
+        GenerationTrialOutcome("trial-1", plan_a.plan_id, plan_a.strategy_id, True, 0.8, 0.9)
+    )
+    planner.store_generation_trial_outcome(
+        GenerationTrialOutcome("trial-2", plan_a.plan_id, plan_a.strategy_id, True, 0.9, 1.0)
+    )
+    planner.store_generation_trial_outcome(
+        GenerationTrialOutcome("trial-3", plan_b.plan_id, plan_b.strategy_id, False, 0.3, 0.2)
+    )
+    planner.store_generation_trial_outcome(
+        GenerationTrialOutcome("trial-4", plan_b.plan_id, plan_b.strategy_id, False, 0.2, 0.1)
+    )
+
+    rewards = planner.compute_reward_signals()
+    assert rewards[plan_a.strategy_id]["quality_pass_rate"] == 1.0
+    assert rewards[plan_b.strategy_id]["quality_pass_rate"] == 0.0
+
+    lifecycle = planner.promote_winner_and_archive_losers(
+        experiment_id="exp-plan-1",
+        minimum_sample_size=4,
+        promotion_threshold=0.5,
+    )
+    assert lifecycle.promoted_strategy_id == plan_a.strategy_id
+    assert plan_b.strategy_id in lifecycle.archived_strategy_ids
+    assert lifecycle.decision["status"] == "promote"
 
 
 def test_clip_generation_job_contract_payload() -> None:
