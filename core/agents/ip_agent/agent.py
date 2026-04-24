@@ -299,6 +299,9 @@ def _load_similarity_policy(payload: dict) -> SimilarityPolicy:
     required_methods = {
         name for name, method_cfg in methods.items() if bool((method_cfg or {}).get("required_for_release_intent"))
     }
+    method_weights = {
+        name: float(weight) for name, weight in raw_method_weights.items() if isinstance(weight, (int, float))
+    }
     strategy_versions = {name: str((cfg or {}).get("version", "unknown")) for name, cfg in methods.items()}
     strategy_model_ids = {name: (cfg or {}).get("model_id") for name, cfg in methods.items()}
 
@@ -356,6 +359,133 @@ def _build_strategies(policy: SimilarityPolicy) -> list[SimilarityStrategy]:
     return strategies
 
 
+def _evaluate_similarity_decision(
+    method_scores_by_entry: list[tuple[list[SimilarityMethodResult], dict[str, Any] | None]],
+    policy: SimilarityPolicy,
+) -> tuple[str, float, list[SimilarityMethodResult], dict[str, Any] | None, dict[str, Any]]:
+    revise_threshold = policy.revise_threshold
+    block_threshold = policy.block_threshold
+    policy_mode = policy.decision_policy if policy.decision_policy in {
+        "max_similarity",
+        "required_methods_all_pass",
+        "weighted_mean",
+    } else "max_similarity"
+
+    if not method_scores_by_entry:
+        return (
+            "pass",
+            0.0,
+            [],
+            None,
+            {
+                "policy_mode": policy_mode,
+                "contributing_methods": [],
+                "required_method_breaches": [],
+                "fallback_to_max_similarity": policy_mode != policy.decision_policy,
+            },
+        )
+
+    best_entry_methods: list[SimilarityMethodResult] = []
+    best_entry_ref: dict[str, Any] | None = None
+    aggregate_score = 0.0
+    contributing_methods: list[dict[str, Any]] = []
+    required_method_breaches: list[dict[str, Any]] = []
+
+    if policy_mode == "weighted_mean":
+        best_weighted_mean = -1.0
+        for methods, entry_ref in method_scores_by_entry:
+            weighted_values: list[tuple[SimilarityMethodResult, float]] = []
+            total_weight = 0.0
+            for result in methods:
+                weight = policy.method_weights.get(result.method, 1.0)
+                if weight <= 0:
+                    continue
+                weighted_values.append((result, weight))
+                total_weight += weight
+            if not weighted_values:
+                continue
+            weighted_mean = sum(result.score * weight for result, weight in weighted_values) / total_weight
+            if weighted_mean > best_weighted_mean:
+                best_weighted_mean = weighted_mean
+                aggregate_score = weighted_mean
+                best_entry_methods = methods
+                best_entry_ref = entry_ref
+                contributing_methods = [
+                    {
+                        "method": result.method,
+                        "score": round(result.score, 6),
+                        "weight": round(weight, 6),
+                        "weighted_contribution": round((result.score * weight) / total_weight, 6),
+                    }
+                    for result, weight in weighted_values
+                ]
+    else:
+        for methods, entry_ref in method_scores_by_entry:
+            entry_max = max(result.score for result in methods)
+            if entry_max > aggregate_score:
+                aggregate_score = entry_max
+                best_entry_methods = methods
+                best_entry_ref = entry_ref
+                contributing_methods = [
+                    {
+                        "method": result.method,
+                        "score": round(result.score, 6),
+                    }
+                    for result in methods
+                    if result.score == entry_max
+                ]
+
+    if policy_mode == "required_methods_all_pass":
+        highest_required_scores: dict[str, SimilarityMethodResult] = {}
+        for methods, _entry_ref in method_scores_by_entry:
+            for result in methods:
+                if result.method not in policy.required_methods_release_intent:
+                    continue
+                previous = highest_required_scores.get(result.method)
+                if previous is None or result.score > previous.score:
+                    highest_required_scores[result.method] = result
+
+        for method_name in sorted(policy.required_methods_release_intent):
+            result = highest_required_scores.get(method_name)
+            if result is None:
+                continue
+            if result.score >= revise_threshold:
+                required_method_breaches.append(
+                    {
+                        "method": result.method,
+                        "score": round(result.score, 6),
+                        "threshold_breached": "block" if result.score >= block_threshold else "revise",
+                    }
+                )
+
+        if any(item["threshold_breached"] == "block" for item in required_method_breaches):
+            decision = "block"
+        elif required_method_breaches:
+            decision = "revise"
+        else:
+            decision = "pass"
+    else:
+        if aggregate_score >= block_threshold:
+            decision = "block"
+        elif aggregate_score >= revise_threshold:
+            decision = "revise"
+        else:
+            decision = "pass"
+
+    return (
+        decision,
+        aggregate_score,
+        best_entry_methods,
+        best_entry_ref,
+        {
+            "policy_mode": policy_mode,
+            "contributing_methods": contributing_methods,
+            "required_method_breaches": required_method_breaches,
+            "fallback_to_max_similarity": policy_mode != policy.decision_policy,
+        },
+    )
+
+
 def run_similarity_audit(payload: dict) -> dict:
     log_path = str(payload.get("provenance_log_path", "registry/provenance_log.jsonl"))
     job_id = str(payload.get("job_id") or "unknown")
@@ -376,9 +506,7 @@ def run_similarity_audit(payload: dict) -> dict:
     prior_entries = _read_provenance_entries(log_path)
     strategies = _build_strategies(policy)
 
-    max_similarity = 0.0
-    max_method_results: list[SimilarityMethodResult] = []
-    most_similar_ref: dict | None = None
+    method_scores_by_entry: list[tuple[list[SimilarityMethodResult], dict[str, Any] | None]] = []
 
     for entry in prior_entries:
         prior_render_metadata, prior_audio_fingerprint, prior_embedding = _extract_prior_signature(entry)
@@ -407,28 +535,24 @@ def run_similarity_audit(payload: dict) -> dict:
         if not method_scores:
             continue
 
-        entry_max_similarity = max(item.score for item in method_scores)
-        if entry_max_similarity > max_similarity:
-            max_similarity = entry_max_similarity
-            max_method_results = method_scores
-            most_similar_ref = {
-                "job_id": entry.get("job_id"),
-                "track_id": entry.get("track_id"),
-                "file": entry.get("file"),
-                "sha256": entry.get("sha256"),
-            }
+        method_scores_by_entry.append(
+            (
+                method_scores,
+                {
+                    "job_id": entry.get("job_id"),
+                    "track_id": entry.get("track_id"),
+                    "file": entry.get("file"),
+                    "sha256": entry.get("sha256"),
+                },
+            )
+        )
 
-    revise_threshold = policy.revise_threshold
-    block_threshold = policy.block_threshold
+    decision, aggregate_similarity, method_results, most_similar_ref, decision_rationale = _evaluate_similarity_decision(
+        method_scores_by_entry,
+        policy,
+    )
 
-    if max_similarity >= block_threshold:
-        decision = "block"
-    elif max_similarity >= revise_threshold:
-        decision = "revise"
-    else:
-        decision = "pass"
-
-    confidence = max(0.0, min(1.0, max_similarity))
+    confidence = max(0.0, min(1.0, aggregate_similarity))
 
     timestamp = dt.datetime.now(dt.timezone.utc).strftime("%Y%m%dT%H%M%S%fZ")
     artifact_path = _SIMILARITY_AUDIT_DIR / f"{job_id}_{timestamp}.json"
@@ -437,18 +561,19 @@ def run_similarity_audit(payload: dict) -> dict:
     audit_payload = {
         "job_id": job_id,
         "decision": decision,
-        "max_similarity": round(max_similarity, 6),
+        "max_similarity": round(aggregate_similarity, 6),
         "confidence": round(confidence, 6),
         "confidence_floor": policy.confidence_floor,
         "thresholds": {
-            "revise": revise_threshold,
-            "block": block_threshold,
+            "revise": policy.revise_threshold,
+            "block": policy.block_threshold,
         },
         "threshold_source": policy.threshold_source,
         "policy": {
             "version": policy.version,
             "decision_policy": policy.decision_policy,
         },
+        "decision_rationale": decision_rationale,
         "method_results": [
             {
                 "method": item.method,
@@ -457,7 +582,7 @@ def run_similarity_audit(payload: dict) -> dict:
                 "score": round(item.score, 6),
                 "required_for_release_intent": item.required_for_release_intent,
             }
-            for item in max_method_results
+            for item in method_results
         ],
         "most_similar_ref": most_similar_ref,
         "candidate": {
@@ -472,7 +597,7 @@ def run_similarity_audit(payload: dict) -> dict:
 
     return {
         "decision": decision,
-        "max_similarity": max_similarity,
+        "max_similarity": aggregate_similarity,
         "confidence": confidence,
         "policy_version": policy.version,
         "audit_artifact_path": str(artifact_path),
