@@ -2,6 +2,8 @@
 
 > Part of the **InnovativeArtsInc** Agent Documentation Suite.
 > **Normative source for tier resolution:** this file is the canonical autonomy matrix. If any tier statement differs across docs, **`AUTONOMY.md` wins**.
+>
+> Documentation map: [`DOCS_INDEX.md`](./DOCS_INDEX.md)
 
 ---
 

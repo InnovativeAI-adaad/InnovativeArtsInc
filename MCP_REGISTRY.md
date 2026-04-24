@@ -2,6 +2,8 @@
 
 > **Standard:** SPEC-IAI-003 | ADAAD v9.77.1
 >
+> **Documentation map:** [`DOCS_INDEX.md`](./DOCS_INDEX.md)
+>
 > **Invariant IAI-INV-001:** No MCP server may transition to `status: active` without
 > `registered_by: HUMAN-0`. ArchitectAgent may draft records; only HUMAN-0 ratification
 > promotes to active.

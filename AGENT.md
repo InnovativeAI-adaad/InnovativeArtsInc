@@ -125,6 +125,7 @@ This document defines the configuration, identity, permissions, and behavioral r
 | `WORKFLOWS.md` | Automated workflow definitions |
 | `MEMORY.md` | Memory and state architecture |
 | `SECURITY.md` | Security policies for agent operations |
+| `DOCS_INDEX.md` | Documentation map with authority, audience, and usage triggers |
 
 ---
 
