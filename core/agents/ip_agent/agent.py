@@ -2,10 +2,14 @@
 
 from __future__ import annotations
 
+import time
+
 from core.agents.ip_agent.hasher import append_provenance_entries
+from core.agents.ip_agent.telemetry import append_stage_metric
 
 
 _DEF_NAME = "ip_agent"
+_STAGE_RUN = "ip_agent.run"
 
 
 def info() -> dict:
@@ -34,6 +38,7 @@ def _record_stage(
 
 
 def run(input=None) -> dict:
+    started_at = time.perf_counter()
     payload = input or {}
     output_files = payload.get("output_files")
     file_path = payload.get("file_path")
@@ -41,31 +46,61 @@ def run(input=None) -> dict:
     if output_files is None:
         output_files = [file_path] if file_path else []
 
+    job_id = str(payload.get("job_id") or "unknown")
+
     if not output_files:
+        _record_stage(
+            job_id=job_id,
+            stage=_STAGE_RUN,
+            started_at=started_at,
+            result="failure:missing_output_files",
+            fitness_score=0.0,
+        )
         return {"ok": False, "error": "At least one output artifact is required"}
 
-    job_id = payload.get("job_id")
     track_id = payload.get("track_id")
 
-    if not job_id or not track_id:
+    if not payload.get("job_id") or not track_id:
+        _record_stage(
+            job_id=job_id,
+            stage=_STAGE_RUN,
+            started_at=started_at,
+            result="failure:missing_required_ids",
+            fitness_score=0.0,
+        )
         return {"ok": False, "error": "job_id and track_id are required"}
 
     try:
         entries = append_provenance_entries(
             output_files,
-            job_id=job_id,
+            job_id=payload["job_id"],
             track_id=track_id,
             agent=payload.get("agent", _DEF_NAME),
             parent_artifact_hash=payload.get("parent_artifact_hash"),
             log_path=payload.get("provenance_log_path", "registry/provenance_log.jsonl"),
         )
-        return {"ok": True, "entries": entries}
+        result = {"ok": True, "entries": entries}
+        _record_stage(
+            job_id=payload["job_id"],
+            stage=_STAGE_RUN,
+            started_at=started_at,
+            result="success",
+            fitness_score=score(result),
+        )
+        return result
     except Exception as exc:
+        _record_stage(
+            job_id=payload["job_id"],
+            stage=_STAGE_RUN,
+            started_at=started_at,
+            result="failure:append_provenance_exception",
+            fitness_score=0.0,
+        )
         return {
             "ok": False,
             "error": f"Provenance append failed; blocking pipeline completion: {exc}",
             "output_files": output_files,
-            "job_id": job_id,
+            "job_id": payload["job_id"],
             "track_id": track_id,
         }
 
