@@ -11,7 +11,7 @@ _DEF_NAME = "ip_agent"
 def info() -> dict:
     return {
         "name": _DEF_NAME,
-        "version": "0.1.0",
+        "version": "0.2.0",
         "description": "Generates provenance metadata for creative assets.",
     }
 
