@@ -48,6 +48,33 @@ cd InnovativeArtsInc
 ./init_engine.sh
 ```
 
+#### Verify initialization
+
+Run these checks to confirm required registry artifacts were created:
+
+```bash
+test -f registry/version_manifest.json && echo "✓ version_manifest.json present"
+test -f registry/provenance_log.jsonl && echo "✓ provenance_log.jsonl present"
+test -f registry/metrics.jsonl && echo "✓ metrics.jsonl present"
+test -f registry/dashboard_snapshot.json && echo "✓ dashboard_snapshot.json present"
+```
+
+If any command exits non-zero, rerun:
+
+```bash
+./init_engine.sh
+```
+
+#### Reset mode (`--reset`)
+
+`init_engine.sh` supports one flag: `--reset`.
+
+```bash
+./init_engine.sh --reset
+```
+
+⚠️ Warning: `--reset` reinitializes registry artifacts (for example, baseline files under `registry/` are recreated), so use it only when you intentionally want a fresh registry state.
+
 Expected result: scaffold directories are ensured and registry baseline artifacts are created/preserved under `registry/`.
 
 ### Current non-goals
