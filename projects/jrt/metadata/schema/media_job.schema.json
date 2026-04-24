@@ -82,8 +82,140 @@
         "$ref": "#/$defs/provenanceRef"
       },
       "minItems": 1
+    },
+    "generation_config": {
+      "type": "object",
+      "description": "Generation-time model and prompt controls used to create media outputs.",
+      "additionalProperties": false,
+      "required": [
+        "model_id",
+        "prompt_template_version",
+        "seed",
+        "creativity_profile",
+        "style_constraints"
+      ],
+      "properties": {
+        "model_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prompt_template_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seed": {
+          "description": "Seed value used for reproducible generation.",
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
+        },
+        "creativity_profile": {
+          "description": "Creativity profile label or structured profile payload used for generation.",
+          "oneOf": [
+            {
+              "type": "string",
+              "enum": [
+                "conservative",
+                "balanced",
+                "exploratory"
+              ]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "name"
+              ],
+              "properties": {
+                "name": {
+                  "type": "string",
+                  "minLength": 1
+                },
+                "temperature": {
+                  "type": "number",
+                  "minimum": 0
+                },
+                "top_p": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1
+                }
+              }
+            }
+          ]
+        },
+        "style_constraints": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          },
+          "minItems": 1
+        }
+      }
+    },
+    "uniqueness_report": {
+      "type": "object",
+      "description": "Novelty/similarity evaluation output used to gate publication.",
+      "additionalProperties": false,
+      "required": [
+        "novelty_score",
+        "similarity_method",
+        "max_similarity_observed",
+        "decision"
+      ],
+      "properties": {
+        "novelty_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
+        "similarity_method": {
+          "type": "string",
+          "minLength": 1
+        },
+        "max_similarity_observed": {
+          "type": "number",
+          "minimum": 0
+        },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "revise",
+            "block"
+          ]
+        }
+      }
     }
   },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "stage": {
+            "type": "string",
+            "pattern": "^(generation($|/)|mix($|/)|master($|/)|rollout($|/)|publish($|/)|distribution($|/)|release($|/))"
+          }
+        },
+        "required": [
+          "stage"
+        ]
+      },
+      "then": {
+        "required": [
+          "generation_config",
+          "uniqueness_report"
+        ]
+      }
+    }
+  ],
   "$defs": {
     "assetRef": {
       "type": "object",
