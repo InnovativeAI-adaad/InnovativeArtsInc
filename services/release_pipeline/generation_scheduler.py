@@ -220,22 +220,42 @@ def select_fallback_provider_model(
     if not transient_error:
         return None
 
-    attempted = set(attempted_targets or set())
-    primary = (
+    def _validated_pair(provider: Any, model: Any) -> tuple[str, str] | None:
+        if not isinstance(provider, str) or not isinstance(model, str):
+            return None
+
+        provider_value = provider.strip()
+        model_value = model.strip()
+        if not provider_value or not model_value:
+            return None
+        if provider_value == "None" or model_value == "None":
+            return None
+        return provider_value, model_value
+
+    attempted = {
+        (str(provider).strip(), str(model).strip())
+        for provider, model in (attempted_targets or set())
+    }
+    primary = _validated_pair(
         scheduler_decision.get("selected_provider"),
         scheduler_decision.get("selected_model"),
     )
-    attempted.add((str(primary[0]), str(primary[1])))
+    if primary is not None:
+        attempted.add(primary)
 
     ranking = scheduler_decision.get("ranking") or []
     for candidate in ranking:
-        pair = (str(candidate.get("provider")), str(candidate.get("model")))
+        pair = _validated_pair(candidate.get("provider"), candidate.get("model"))
+        if pair is None:
+            continue
         if pair not in attempted:
             return {"provider": pair[0], "model": pair[1], "source": "ranked_candidates"}
 
     preset = scheduler_decision.get("provider_model_preset") or {}
     for fallback in preset.get("fallback") or []:
-        pair = (str(fallback.get("provider")), str(fallback.get("model")))
+        pair = _validated_pair(fallback.get("provider"), fallback.get("model"))
+        if pair is None:
+            continue
         if pair not in attempted:
             return {"provider": pair[0], "model": pair[1], "source": "preset_fallback"}
 

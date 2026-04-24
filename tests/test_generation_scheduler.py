@@ -105,3 +105,55 @@ def test_append_scheduler_dashboard_metrics_writes_cost_and_approval_time(tmp_pa
     assert names == {"cost_per_approved_track", "time_to_approval_ms"}
     cost_entry = next(row for row in parsed if row["metric_name"] == "cost_per_approved_track")
     assert cost_entry["metric_value"] == 3.0
+
+
+def test_select_fallback_provider_model_skips_malformed_ranking_rows() -> None:
+    decision = {
+        "selected_provider": "openai",
+        "selected_model": "gpt-4.1",
+        "ranking": [
+            {"provider": None, "model": "gpt-4o"},
+            {"provider": "None", "model": "gpt-4o"},
+            {"provider": "  ", "model": "gpt-4o"},
+            {"provider": "anthropic", "model": "claude-3.7-sonnet"},
+        ],
+        "provider_model_preset": {"fallback": []},
+    }
+
+    fallback = select_fallback_provider_model(
+        scheduler_decision=decision,
+        transient_error=True,
+        attempted_targets={("openai", "gpt-4.1")},
+    )
+
+    assert fallback == {
+        "provider": "anthropic",
+        "model": "claude-3.7-sonnet",
+        "source": "ranked_candidates",
+    }
+
+
+def test_select_fallback_provider_model_returns_none_for_only_malformed_targets() -> None:
+    decision = {
+        "selected_provider": "openai",
+        "selected_model": "gpt-4.1",
+        "ranking": [
+            {"provider": "None", "model": "None"},
+            {"provider": " ", "model": "gpt-4o"},
+        ],
+        "provider_model_preset": {
+            "fallback": [
+                {"provider": None, "model": "claude-3.7-sonnet"},
+                {"provider": "None", "model": "claude-3.7-sonnet"},
+                {"provider": "anthropic", "model": " "},
+            ]
+        },
+    }
+
+    fallback = select_fallback_provider_model(
+        scheduler_decision=decision,
+        transient_error=True,
+        attempted_targets={("openai", "gpt-4.1")},
+    )
+
+    assert fallback is None
