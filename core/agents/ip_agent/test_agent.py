@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import tempfile
 import unittest
+from pathlib import Path
 from unittest.mock import patch
 
 from core.agents.ip_agent import agent
@@ -108,7 +111,6 @@ class IPAgentTelemetryTests(unittest.TestCase):
         self.assertEqual(metric_call["result"], "failure:similarity_blocked")
         self.assertEqual(metric_call["fitness_score"], 0.0)
 
-
     @patch("core.agents.ip_agent.agent.append_stage_metric")
     @patch("core.agents.ip_agent.agent.append_provenance_entries")
     def test_run_emits_uniqueness_audit_metric_when_fields_provided(self, mock_append_entries, mock_append_metric) -> None:
@@ -140,6 +142,144 @@ class IPAgentTelemetryTests(unittest.TestCase):
 
         run_stage_call = mock_append_metric.call_args_list[1].kwargs
         self.assertEqual(run_stage_call["stage"], "ip_agent.run")
+
+
+class IPAgentSimilarityPolicyTests(unittest.TestCase):
+    def _policy_file(self, revise: float = 0.75, block: float = 0.9, version: str = "1.0.0") -> str:
+        temp_dir = tempfile.mkdtemp(prefix="ip-policy-")
+        path = Path(temp_dir) / "policy.json"
+        path.write_text(
+            json.dumps(
+                {
+                    "version": version,
+                    "decision_policy": "max_similarity",
+                    "confidence_floor": 0.3,
+                    "thresholds": {"revise": revise, "block": block},
+                    "methods": {
+                        "metadata": {
+                            "version": "1.0.0",
+                            "model_id": "jaccard-v1",
+                            "required_for_release_intent": True,
+                        },
+                        "fingerprint": {
+                            "version": "1.0.0",
+                            "model_id": "fingerprint-v1",
+                            "required_for_release_intent": True,
+                        },
+                        "embedding": {
+                            "version": "1.0.0",
+                            "model_id": "embedding-v1",
+                            "required_for_release_intent": True,
+                        },
+                    },
+                }
+            ),
+            encoding="utf-8",
+        )
+        return str(path)
+
+    def _provenance_file(self, lines: list[dict]) -> str:
+        fd, path_str = tempfile.mkstemp(prefix="ip-prov-", suffix=".jsonl")
+        Path(path_str).write_text("\n".join(json.dumps(line) for line in lines) + "\n", encoding="utf-8")
+        return path_str
+
+    def test_run_similarity_audit_boundary_values(self) -> None:
+        policy_path = self._policy_file(revise=0.5, block=1.0)
+        provenance = self._provenance_file(
+            [
+                {
+                    "job_id": "prior-1",
+                    "track_id": "track-prior-1",
+                    "render_metadata": {"prompt": "shared"},
+                    "audio_fingerprint": [1.0, 0.0],
+                    "embedding": [1.0, 0.0],
+                }
+            ]
+        )
+
+        pass_result = agent.run_similarity_audit(
+            {
+                "job_id": "job-pass",
+                "similarity_policy_path": policy_path,
+                "provenance_log_path": provenance,
+                "render_metadata": {"prompt": "different"},
+                "audio_fingerprint": [0.0, 1.0],
+                "embedding": [0.0, 1.0],
+            }
+        )
+        self.assertEqual(pass_result["decision"], "pass")
+
+        revise_result = agent.run_similarity_audit(
+            {
+                "job_id": "job-revise",
+                "similarity_policy_path": policy_path,
+                "provenance_log_path": provenance,
+                "render_metadata": {"prompt": "shared", "extra": "field"},
+                "audio_fingerprint": [0.0, 1.0],
+                "embedding": [0.0, 1.0],
+            }
+        )
+        self.assertEqual(revise_result["decision"], "revise")
+        self.assertAlmostEqual(revise_result["max_similarity"], 0.5, places=6)
+
+        block_result = agent.run_similarity_audit(
+            {
+                "job_id": "job-block",
+                "similarity_policy_path": policy_path,
+                "provenance_log_path": provenance,
+                "render_metadata": {"prompt": "shared"},
+                "audio_fingerprint": [1.0, 0.0],
+                "embedding": [1.0, 0.0],
+            }
+        )
+        self.assertEqual(block_result["decision"], "block")
+        self.assertAlmostEqual(block_result["max_similarity"], 1.0, places=6)
+
+    @patch("core.agents.ip_agent.agent.append_stage_metric")
+    @patch("core.agents.ip_agent.agent.append_provenance_entries")
+    def test_run_fails_on_policy_version_drift(self, mock_append_entries, mock_append_metric) -> None:
+        mock_append_entries.return_value = [{"artifact_hash": "abc123"}]
+        policy_path = self._policy_file(version="2.0.0")
+
+        result = agent.run(
+            {
+                "job_id": "job-drift",
+                "track_id": "track-drift",
+                "output_files": ["registry/provenance_log.jsonl"],
+                "render_metadata": {"prompt": "x"},
+                "similarity_policy_path": policy_path,
+                "expected_similarity_policy_version": "1.0.0",
+            }
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["stage_result_code"], "failure:similarity_audit_exception")
+        self.assertIn("policy version drift", result["error"])
+        mock_append_entries.assert_not_called()
+        self.assertEqual(mock_append_metric.call_count, 1)
+
+    @patch("core.agents.ip_agent.agent.append_stage_metric")
+    @patch("core.agents.ip_agent.agent.append_provenance_entries")
+    def test_run_fails_closed_for_missing_release_intent_inputs(self, mock_append_entries, mock_append_metric) -> None:
+        mock_append_entries.return_value = [{"artifact_hash": "abc123"}]
+        policy_path = self._policy_file(version="1.0.0")
+
+        result = agent.run(
+            {
+                "job_id": "job-release",
+                "track_id": "track-release",
+                "output_files": ["registry/provenance_log.jsonl"],
+                "release_intent": True,
+                "render_metadata": {"prompt": "x"},
+                "similarity_policy_path": policy_path,
+            }
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["stage_result_code"], "failure:similarity_audit_exception")
+        self.assertIn("Missing required similarity inputs", result["error"])
+        mock_append_entries.assert_not_called()
+        self.assertEqual(mock_append_metric.call_count, 1)
 
 
 if __name__ == "__main__":
