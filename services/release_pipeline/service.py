@@ -9,6 +9,9 @@ from datetime import datetime, timezone
 from typing import Any
 
 
+from .generation_scheduler import CandidateGenerationPlan, run_scheduler_hook
+
+
 def _utc_now_iso() -> str:
     return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
 
@@ -129,3 +132,21 @@ def generate_split_sheet(
         signer=signer,
     )
     return split_sheet, signed_ref.as_dict()
+
+
+def schedule_generation_job(
+    *,
+    job_id: str,
+    candidate_plans: list[CandidateGenerationPlan],
+    campaign_budget_tier: str,
+    release_urgency: str,
+    job_metadata: dict[str, Any] | None = None,
+) -> tuple[dict[str, Any], dict[str, Any]]:
+    """Run generation scheduler hook and persist rationale into job metadata."""
+    return run_scheduler_hook(
+        job_id=job_id,
+        candidate_plans=candidate_plans,
+        campaign_budget_tier=campaign_budget_tier,
+        release_urgency=release_urgency,
+        job_metadata=job_metadata or {},
+    )
