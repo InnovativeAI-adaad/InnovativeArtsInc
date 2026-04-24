@@ -85,17 +85,10 @@
     },
     "generation_config": {
       "type": "object",
-      "description": "Generation-time model and prompt controls used to create media outputs.",
+      "description": "Generation-time model and prompt controls used to create media outputs. Canonical field names use snake_case; legacy names are accepted during migration.",
       "additionalProperties": false,
-      "required": [
-        "model_id",
-        "prompt_template_version",
-        "seed",
-        "creativity_profile",
-        "style_constraints"
-      ],
       "properties": {
-        "model_id": {
+        "model_version": {
           "type": "string",
           "minLength": 1
         },
@@ -103,7 +96,7 @@
           "type": "string",
           "minLength": 1
         },
-        "seed": {
+        "random_seed": {
           "description": "Seed value used for reproducible generation.",
           "oneOf": [
             {
@@ -157,21 +150,58 @@
             "minLength": 1
           },
           "minItems": 1
+        },
+        "style_dna_fingerprint": {
+          "type": "string",
+          "minLength": 1
+        },
+        "model_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "seed": {
+          "description": "Legacy seed key accepted during migration.",
+          "oneOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "string",
+              "minLength": 1
+            }
+          ]
         }
-      }
+      },
+      "oneOf": [
+        {
+          "title": "canonical_generation_config",
+          "required": [
+            "model_version",
+            "prompt_template_version",
+            "random_seed",
+            "creativity_profile",
+            "style_constraints",
+            "style_dna_fingerprint"
+          ]
+        },
+        {
+          "title": "legacy_generation_config",
+          "required": [
+            "model_id",
+            "prompt_template_version",
+            "seed",
+            "creativity_profile",
+            "style_constraints"
+          ]
+        }
+      ]
     },
     "uniqueness_report": {
       "type": "object",
-      "description": "Novelty/similarity evaluation output used to gate publication.",
+      "description": "Novelty/similarity evaluation output used to gate publication. Canonical field names use snake_case; legacy names are accepted during migration.",
       "additionalProperties": false,
-      "required": [
-        "novelty_score",
-        "similarity_method",
-        "max_similarity_observed",
-        "decision"
-      ],
       "properties": {
-        "novelty_score": {
+        "novelty_index": {
           "type": "number",
           "minimum": 0,
           "maximum": 1
@@ -184,6 +214,14 @@
           "type": "number",
           "minimum": 0
         },
+        "similarity_guardrail_pass": {
+          "type": "boolean"
+        },
+        "novelty_score": {
+          "type": "number",
+          "minimum": 0,
+          "maximum": 1
+        },
         "decision": {
           "type": "string",
           "enum": [
@@ -192,7 +230,27 @@
             "block"
           ]
         }
-      }
+      },
+      "oneOf": [
+        {
+          "title": "canonical_uniqueness_report",
+          "required": [
+            "novelty_index",
+            "similarity_method",
+            "max_similarity_observed",
+            "similarity_guardrail_pass"
+          ]
+        },
+        {
+          "title": "legacy_uniqueness_report",
+          "required": [
+            "novelty_score",
+            "similarity_method",
+            "max_similarity_observed",
+            "decision"
+          ]
+        }
+      ]
     }
   },
   "allOf": [
