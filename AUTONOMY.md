@@ -1,69 +1,55 @@
 # AUTONOMY.md — Autonomous Capability Permissions
 
-> Part of the **InnovativeArtsInc** Agent Documentation Suite  
-> Cross-reference: `AGENT.md` for autonomy level definitions
+> Part of the **InnovativeArtsInc** Agent Documentation Suite.
+> **Normative source for tier resolution:** this file is the canonical autonomy matrix. If any tier statement differs across docs, **`AUTONOMY.md` wins**.
 
 ---
 
-## 1. GitHub Operations
+## 1. Canonical Autonomy Matrix (Normative)
 
-| Capability                  | Permitted | Level | Notes                              |
-|----------------------------|-----------|-------|------------------------------------|
-| Read repos, branches, files | ✅        | 🟢 1  | All repos under InnovativeAI-adaad |
-| Create branches             | ✅        | 🟡 2  | Naming: `agent/<task-slug>`        |
-| Commit files                | ✅        | 🟡 2  | Must include `[AGENT]` in message  |
-| Open PRs                    | ✅        | 🟡 2  | Always as draft first              |
-| Merge PRs → `dev`           | ✅        | 🟡 2  | Requires passing CI                |
-| Merge PRs → `main`          | ❌        | 🔴 3  | Human approval required            |
-| Create issues               | ✅        | 🟢 1  | Labeled `agent-created`            |
-| Close issues                | ✅        | 🟡 2  | Must comment reason before close   |
-| Delete branches             | ✅        | 🔴 3  | Only merged/stale, owner approval  |
-| Manage releases             | ✅        | 🟡 2  | Draft only; publish requires owner |
-| Modify Actions workflows    | ❌        | 🔴 3  | Always requires human review       |
-
----
-
-## 2. Code Operations
-
-| Capability                  | Permitted | Level | Notes                              |
-|----------------------------|-----------|-------|------------------------------------|
-| Generate new code files     | ✅        | 🟡 2  | Must pass lint before commit       |
-| Refactor existing code      | ✅        | 🟡 2  | Requires test coverage present     |
-| Run tests                   | ✅        | 🟢 1  | Read-only, no side effects         |
-| Install dependencies        | ✅        | 🟡 2  | Patch updates only autonomously    |
-| Modify `package.json`       | ✅        | 🟡 2  | Minor/patch bumps only             |
-| Modify CI/CD pipelines      | ❌        | 🔴 3  | Always human-reviewed              |
-| Modify env/secrets files    | ❌        | 🔴 3  | Never autonomous                   |
-
----
-
-## 3. Communication Operations
-
-| Capability                  | Permitted | Level | Notes                              |
-|----------------------------|-----------|-------|------------------------------------|
-| Post GitHub comments        | ✅        | 🟢 1  | Issues, PRs, Discussions           |
-| Send email notifications    | ✅        | 🟡 2  | Owner email only by default        |
-| Post to Slack/Discord       | ✅        | 🟡 2  | Designated channels only           |
-| Publish social media posts  | ❌        | 🔴 3  | Always requires human approval     |
-| Send external API webhooks  | ✅        | 🟡 2  | Whitelisted endpoints only         |
-
----
-
-## 4. Data & File Operations
-
-| Capability                  | Permitted | Level | Notes                              |
-|----------------------------|-----------|-------|------------------------------------|
-| Read any project file       | ✅        | 🟢 1  | Unrestricted read access           |
-| Write to `docs/`            | ✅        | 🟡 2  | Auto-generated docs OK             |
-| Write to `src/`             | ✅        | 🟡 2  | Via PR only, never direct push     |
-| Write to `config/`          | ✅        | 🔴 3  | Human approval always              |
-| Delete files                | ❌        | 🔴 3  | Never autonomous                   |
-| Access external APIs        | ✅        | 🟡 2  | Read-only external calls only      |
-| Store data externally       | ✅        | 🟡 2  | Whitelisted services only          |
+| Action Name | Tier | Approval Model | Notes |
+|---|---:|---|---|
+| `read_repo` | 🟢 1 | Autonomous | Read branches/files/history. |
+| `list_branches` | 🟢 1 | Autonomous | Read branch metadata only. |
+| `read_issue` | 🟢 1 | Autonomous | Read issue content/metadata. |
+| `classify_issue` | 🟢 1 | Autonomous | Bug/feature/docs/question triage. |
+| `assign_labels` | 🟢 1 | Autonomous | Apply labels under repo policy. |
+| `comment_on_issue` | 🟢 1 | Autonomous | Non-destructive issue comments. |
+| `comment_on_pr` | 🟢 1 | Autonomous | PR feedback/status comments. |
+| `search_github` | 🟢 1 | Autonomous | Read-only GitHub search/queries. |
+| `run_tests` | 🟢 1 | Autonomous | Read-only validation runs. |
+| `lint_code` | 🟢 1 | Autonomous | Static style/quality checks. |
+| `create_issue` | 🟢 1 | Autonomous | Open issues labeled `agent-created`. |
+| `read_agent_log` | 🟢 1 | Autonomous | Read log and telemetry records. |
+| `write_agent_log` | 🟢 1 | Autonomous | Append action/audit records. |
+| `create_branch` | 🟡 2 | Log + notify owner | Branch naming policy enforced. |
+| `commit_files` | 🟡 2 | Log + notify owner | Commit must include `[AGENT]`. |
+| `open_pr_draft` | 🟡 2 | Log + notify owner | Draft PR only. |
+| `review_code` | 🟡 2 | Log + notify owner | Structured review and change requests. |
+| `close_issue` | 🟡 2 | Log + notify owner | Must provide closure rationale. |
+| `merge_pr_dev_staging` | 🟡 2 | Log + notify owner | CI must pass first. |
+| `draft_release` | 🟡 2 | Log + notify owner | Draft only; no publish. |
+| `send_email_owner` | 🟡 2 | Log + notify owner | Owner-targeted notifications only. |
+| `generate_readme` | 🟡 2 | Log + notify owner | Documentation generation/update. |
+| `explain_code` | 🟡 2 | Log + notify owner | Docstrings/comments generation. |
+| `catalog_music` | 🟡 2 | Log + notify owner | Parse/index music metadata. |
+| `generate_metadata` | 🟡 2 | Log + notify owner | AI metadata drafts. |
+| `tag_audio` | 🟡 2 | Log + notify owner | Apply/repair ID3 tags. |
+| `read_brief` | 🟡 2 | Log + notify owner | Parse owner campaign brief. |
+| `web_search_trends` | 🟡 2 | Log + notify owner | Research-only web lookup. |
+| `draft_press_release` | 🟡 2 | Log + notify owner | Draft communications only. |
+| `generate_social_drafts` | 🟡 2 | Log + notify owner | Never direct publish. |
+| `merge_pr_main` | 🔴 3 | Human approval required | Protected branch gate. |
+| `deploy_production` | 🔴 3 | Human approval required | No autonomous production deploys. |
+| `modify_secrets_or_env` | 🔴 3 | Human approval required | Includes credentials and env vars. |
+| `delete_branch_or_file` | 🔴 3 | Human approval required | Destructive operation gate. |
+| `modify_ci_cd` | 🔴 3 | Human approval required | Workflow/pipeline changes. |
+| `publish_release` | 🔴 3 | Human approval required | Human publish decision required. |
+| `modify_governance_docs` | 🔴 3 | Human approval required | `AGENT.md`, `AUTONOMY.md`, `SECURITY.md`. |
 
 ---
 
-## 5. Scheduling
+## 2. Scheduling
 
 Agents may operate on these schedules without per-run approval:
 
@@ -71,60 +57,50 @@ Agents may operate on these schedules without per-run approval:
 schedules:
   daily_summary:
     cron: "0 9 * * *"          # 9:00 AM UTC daily
-    action: summarize_activity
+    action: read_agent_log
     level: 1
 
   stale_issue_check:
     cron: "0 12 * * 1"         # Monday noon UTC
-    action: label_stale_issues
+    action: search_github
     level: 1
 
   dependency_audit:
     cron: "0 8 * * 1"          # Monday morning
-    action: audit_dependencies
-    level: 2
+    action: run_tests
+    level: 1
 
   release_check:
     cron: "0 10 * * 5"         # Friday morning
-    action: draft_release_notes
+    action: draft_release
     level: 2
 ```
 
 ---
 
-## 6. Constraints & Guardrails
+## 3. Constraints & Guardrails
 
 ```
 - NEVER include credentials, tokens, or secrets in any output.
 - NEVER impersonate the repo owner in communications.
 - NEVER make financial transactions of any kind.
-- NEVER modify AGENT.md, AUTONOMY.md, or SECURITY.md autonomously.
 - ALWAYS prefix agent commits with [AGENT] in the commit message.
 - ALWAYS create a PR rather than pushing directly to protected branches.
-- ALWAYS include a rollback plan for Level 2+ operations.
+- ALWAYS include a rollback plan for Tier 2+ operations.
 - Log every action to AGENT_LOG.md with timestamp, action, and outcome.
 ```
 
 ---
 
-## 7. Audit Trail
+## 4. Conflict Resolution
 
-All agent actions are logged with:
+If tier statements diverge between `AUTONOMY.md`, `AGENT.md`, and `WORKFLOWS.md`, resolve using this document. **`AUTONOMY.md` is normative and wins all tier conflicts.**
 
-```json
-{
-  "timestamp": "ISO-8601",
-  "agent": "ADAAD-Agent",
-  "level": 1 | 2 | 3,
-  "action": "description",
-  "target": "file/branch/issue/PR",
-  "outcome": "success | failure | pending",
-  "approved_by": "human | autonomous",
-  "notes": "optional detail"
-}
-```
+---
 
-Logs are written to `AGENT_LOG.md` and optionally streamed to a connected observability service (see `TOOLS.md`).
+## 5. Review Gate
+
+When a PR edits **any** of `AUTONOMY.md`, `AGENT.md`, or `WORKFLOWS.md`, reviewers must run a **tier-diff check** to confirm action names and tier assignments remain aligned with this canonical matrix.
 
 ---
 
