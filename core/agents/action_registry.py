@@ -95,8 +95,29 @@ def parse_workflow_action_names(workflows_path: Path) -> set[str]:
     if WF005_ANCHOR not in text:
         raise ActionRegistryError(f"Missing expected anchor in {workflows_path}: {WF005_ANCHOR}")
 
+    lines = text.splitlines()
+    anchor_index: int | None = None
+    for index, line in enumerate(lines):
+        if line.strip() == WF005_ANCHOR:
+            anchor_index = index
+            break
+    if anchor_index is None:
+        raise ActionRegistryError(f"Missing expected anchor in {workflows_path}: {WF005_ANCHOR}")
+
+    heading_match = re.match(r"\s*(#+)\s+", lines[anchor_index])
+    if not heading_match:
+        raise ActionRegistryError(f"Invalid WF-005 anchor heading format in {workflows_path}: {WF005_ANCHOR}")
+    wf005_level = len(heading_match.group(1))
+
+    section_lines: list[str] = []
+    for line in lines[anchor_index + 1 :]:
+        next_heading = re.match(r"\s*(#+)\s+", line)
+        if next_heading and len(next_heading.group(1)) <= wf005_level:
+            break
+        section_lines.append(line)
+
     actions: set[str] = set()
-    for line in text.splitlines():
+    for line in section_lines:
         match = re.match(r"\s*\d+\.\s+([a-z0-9_]+)", line)
         if match:
             actions.add(match.group(1))

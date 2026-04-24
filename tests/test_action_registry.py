@@ -88,7 +88,28 @@ steps:
 
 def test_repo_preflight_passes_with_current_docs() -> None:
     actions = parse_workflow_action_names(Path("WORKFLOWS.md"))
-    assert {"verify_uniqueness_strategy", "generate_music", "deploy_production"}.issubset(actions)
+    assert {"verify_uniqueness_strategy", "generate_music", "catalog_music"}.issubset(actions)
+    assert "deploy_production" not in actions
 
     report = validate_action_registry_preflight()
     assert report.ok is True
+
+
+def test_parse_workflow_actions_scoped_to_wf005_section(tmp_path: Path) -> None:
+    workflows = tmp_path / "WORKFLOWS.md"
+    workflows.write_text(
+        """
+## Another Section
+1. should_be_ignored
+
+### 🎵 WF-005 · Music Catalog Update (InnovativeArts)
+1. read_repo
+2. generate_music
+
+### Next Workflow
+1. also_ignored
+""",
+        encoding="utf-8",
+    )
+
+    assert parse_workflow_action_names(workflows) == {"read_repo", "generate_music"}
