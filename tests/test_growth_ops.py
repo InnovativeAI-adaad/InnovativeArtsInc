@@ -1,3 +1,5 @@
+import pytest
+
 from services.growth_ops.attribution import AttributionLayer, CampaignEvent, MonetizationLedgerEntry
 from services.growth_ops.clip_contract import (
     CampaignMetadata,
@@ -105,7 +107,56 @@ def test_attribution_links_events_to_ledger() -> None:
 
     summary = layer.attributed_summary("release-1")
     assert summary["event_count"] == 1
+    assert summary["totals_by_currency"] == {"USD": 12.5}
     assert summary["total_revenue"] == 12.5
+
+
+def test_attribution_mixed_currency_omits_scalar_total() -> None:
+    layer = AttributionLayer()
+    layer.attach_ledger_entry(
+        MonetizationLedgerEntry(
+            ledger_id="led-1",
+            release_id="release-2",
+            amount=10.0,
+            currency="USD",
+        )
+    )
+    layer.attach_ledger_entry(
+        MonetizationLedgerEntry(
+            ledger_id="led-2",
+            release_id="release-2",
+            amount=8.0,
+            currency="EUR",
+        )
+    )
+
+    summary = layer.attributed_summary("release-2")
+    assert summary["totals_by_currency"] == {"USD": 10.0, "EUR": 8.0}
+    assert "total_revenue" not in summary
+
+
+def test_attribution_rejects_non_finite_or_non_normalized_currency() -> None:
+    layer = AttributionLayer()
+
+    with pytest.raises(ValueError, match="amount must be finite"):
+        layer.attach_ledger_entry(
+            MonetizationLedgerEntry(
+                ledger_id="led-1",
+                release_id="release-3",
+                amount=float("inf"),
+                currency="USD",
+            )
+        )
+
+    with pytest.raises(ValueError, match="uppercase ISO-style"):
+        layer.attach_ledger_entry(
+            MonetizationLedgerEntry(
+                ledger_id="led-2",
+                release_id="release-3",
+                amount=2.0,
+                currency="usd",
+            )
+        )
 
 
 def test_governance_guardrails_require_human_for_high_risk() -> None:
