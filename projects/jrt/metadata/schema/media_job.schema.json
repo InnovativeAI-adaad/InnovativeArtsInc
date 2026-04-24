@@ -196,6 +196,44 @@
         }
       ]
     },
+    "generation_strategy": {
+      "type": "object",
+      "description": "Immutable generation lock metadata proving strategy freeze occurred before generation-capable stages.",
+      "additionalProperties": false,
+      "required": [
+        "style_dna_hash",
+        "deterministic_seed",
+        "strategy_version",
+        "locked_at",
+        "locked_by_stage"
+      ],
+      "properties": {
+        "style_dna_hash": {
+          "type": "string",
+          "description": "Fixed-length hash for the locked style DNA payload.",
+          "pattern": "^[A-Fa-f0-9]{64}$"
+        },
+        "deterministic_seed": {
+          "type": "integer",
+          "description": "Deterministic seed frozen for reproducible generation."
+        },
+        "strategy_version": {
+          "type": "string",
+          "description": "Version identifier for the strategy contract used during lock.",
+          "minLength": 1
+        },
+        "locked_at": {
+          "type": "string",
+          "description": "UTC timestamp when strategy was locked.",
+          "format": "date-time"
+        },
+        "locked_by_stage": {
+          "type": "string",
+          "description": "Pipeline stage that performed strategy lock.",
+          "const": "generation_strategy_locked"
+        }
+      }
+    },
     "uniqueness_report": {
       "type": "object",
       "description": "Novelty/similarity evaluation output used to gate publication. Canonical field names use snake_case; legacy names are accepted during migration.",
@@ -268,9 +306,54 @@
       },
       "then": {
         "required": [
+          "generation_strategy",
           "generation_config",
           "uniqueness_report"
+        ],
+        "properties": {
+          "generation_strategy": {
+            "type": "object",
+            "required": [
+              "locked_by_stage",
+              "locked_at"
+            ],
+            "properties": {
+              "locked_by_stage": {
+                "const": "generation_strategy_locked"
+              }
+            }
+          }
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "stage": {
+            "const": "generation_strategy_locked"
+          }
+        },
+        "required": [
+          "stage"
         ]
+      },
+      "then": {
+        "required": [
+          "generation_strategy"
+        ],
+        "properties": {
+          "generation_strategy": {
+            "type": "object",
+            "required": [
+              "locked_by_stage"
+            ],
+            "properties": {
+              "locked_by_stage": {
+                "const": "generation_strategy_locked"
+              }
+            }
+          }
+        }
       }
     }
   ],
