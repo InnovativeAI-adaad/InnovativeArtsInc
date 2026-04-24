@@ -5,7 +5,7 @@ Usage:
   python pipelines/validate_media_outputs.py
   python pipelines/validate_media_outputs.py --manifest projects/jrt/metadata/track_manifest.json \
       --rules projects/jrt/metadata/quality_rules.json \
-      --job-records projects/jrt/metadata/job_records.jsonl
+      --jobs-dir projects/jrt/metadata/jobs
 
 Expected optional per-track metrics for loudness/clipping checks:
   track["analysis"] or track["quality_metrics"] with keys:
@@ -23,7 +23,7 @@ import sys
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 
 
 @dataclass
@@ -35,7 +35,11 @@ class CheckResult:
 
 
 def _utc_now() -> str:
-    return datetime.now(timezone.utc).isoformat()
+    return datetime.now(timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+
+
+def _utc_basic_timestamp() -> str:
+    return datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
 
 
 def _load_json(path: Path) -> dict[str, Any]:
@@ -117,7 +121,7 @@ def check_metadata_completeness(track: dict[str, Any], rules: dict[str, Any], re
     minimum_ratio = float(config.get("minimum_completeness_ratio", 1.0))
 
     missing_fields = [field for field in required_track_fields if track.get(field) in (None, "", [])]
-    assets = track.get("assets") if isinstance(track.get("assets"), dict) else {}
+    assets = cast(dict[str, Any], track.get("assets")) if isinstance(track.get("assets"), dict) else {}
     missing_assets = [field for field in required_asset_fields if assets.get(field) in (None, "")]
 
     missing_paths: list[str] = []
@@ -149,7 +153,7 @@ def check_lyric_structure(track: dict[str, Any], rules: dict[str, Any], repo_roo
     if not config.get("enabled", False):
         return CheckResult("lyric_structure", True, bool(config.get("required", False)), "disabled")
 
-    assets = track.get("assets") if isinstance(track.get("assets"), dict) else {}
+    assets = cast(dict[str, Any], track.get("assets")) if isinstance(track.get("assets"), dict) else {}
     lyrics_path_str = assets.get("lyrics")
     if not lyrics_path_str:
         return CheckResult("lyric_structure", False, bool(config.get("required", False)), "missing lyrics asset path")
@@ -235,33 +239,148 @@ def validate_tracks(manifest: dict[str, Any], rules: dict[str, Any], repo_root: 
     }
 
 
-def write_job_record(path: Path, payload: dict[str, Any]) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("a", encoding="utf-8") as handle:
-        handle.write(json.dumps(payload, sort_keys=True) + "\n")
+def _asset_ref(asset_id: str, path_value: str) -> dict[str, str]:
+    return {"asset_id": asset_id, "path": path_value}
 
 
-def build_job_record(manifest_path: Path, rules_path: Path, results: dict[str, Any], rules: dict[str, Any]) -> dict[str, Any]:
+def _provenance_ref(ref_type: str, ref_id: str, uri: str | None = None) -> dict[str, str]:
+    payload = {"ref_type": ref_type, "ref_id": ref_id}
+    if uri:
+        payload["uri"] = uri
+    return payload
+
+
+def _validate_asset_ref(asset: Any) -> None:
+    if not isinstance(asset, dict):
+        raise ValueError("assetRef entry must be an object")
+    allowed = {"asset_id", "path", "sha256", "mime_type"}
+    extras = set(asset.keys()) - allowed
+    if extras:
+        raise ValueError(f"assetRef has unexpected fields: {sorted(extras)}")
+    if not isinstance(asset.get("asset_id"), str) or not asset["asset_id"]:
+        raise ValueError("assetRef.asset_id must be a non-empty string")
+    if not isinstance(asset.get("path"), str) or not asset["path"]:
+        raise ValueError("assetRef.path must be a non-empty string")
+    if "sha256" in asset:
+        sha256 = asset["sha256"]
+        if not isinstance(sha256, str) or not re.fullmatch(r"[A-Fa-f0-9]{64}", sha256):
+            raise ValueError("assetRef.sha256 must be a 64-hex-character string when provided")
+    if "mime_type" in asset:
+        mime_type = asset["mime_type"]
+        if not isinstance(mime_type, str) or not mime_type:
+            raise ValueError("assetRef.mime_type must be a non-empty string when provided")
+
+
+def _validate_provenance_ref(ref: Any) -> None:
+    if not isinstance(ref, dict):
+        raise ValueError("provenanceRef entry must be an object")
+    allowed = {"ref_type", "ref_id", "uri"}
+    extras = set(ref.keys()) - allowed
+    if extras:
+        raise ValueError(f"provenanceRef has unexpected fields: {sorted(extras)}")
+    if not isinstance(ref.get("ref_type"), str) or not ref["ref_type"]:
+        raise ValueError("provenanceRef.ref_type must be a non-empty string")
+    if not isinstance(ref.get("ref_id"), str) or not ref["ref_id"]:
+        raise ValueError("provenanceRef.ref_id must be a non-empty string")
+    if "uri" in ref:
+        uri = ref["uri"]
+        if not isinstance(uri, str) or not uri:
+            raise ValueError("provenanceRef.uri must be a non-empty string when provided")
+
+
+def validate_job_record_schema(record: dict[str, Any], schema: dict[str, Any]) -> None:
+    required = set(schema.get("required", []))
+    allowed = set(schema.get("properties", {}).keys())
+    extras = set(record.keys()) - allowed
+    missing = required - set(record.keys())
+    if extras:
+        raise ValueError(f"Job record has unexpected fields: {sorted(extras)}")
+    if missing:
+        raise ValueError(f"Job record missing required fields: {sorted(missing)}")
+
+    if not isinstance(record.get("job_id"), str) or not record["job_id"]:
+        raise ValueError("job_id must be a non-empty string")
+    if not isinstance(record.get("track_id"), str) or not record["track_id"]:
+        raise ValueError("track_id must be a non-empty string")
+    if not isinstance(record.get("stage"), str) or not record["stage"]:
+        raise ValueError("stage must be a non-empty string")
+    if not isinstance(record.get("agent_owner"), str) or not record["agent_owner"]:
+        raise ValueError("agent_owner must be a non-empty string")
+    if not isinstance(record.get("attempt"), int) or record["attempt"] < 1:
+        raise ValueError("attempt must be an integer >= 1")
+
+    allowed_status = set(schema.get("properties", {}).get("status", {}).get("enum", []))
+    if record.get("status") not in allowed_status:
+        raise ValueError(f"status must be one of {sorted(allowed_status)}")
+
+    created_at = record.get("created_at")
+    if not isinstance(created_at, str) or not created_at:
+        raise ValueError("created_at must be a non-empty date-time string")
+    try:
+        datetime.fromisoformat(created_at.replace("Z", "+00:00"))
+    except ValueError as exc:
+        raise ValueError("created_at must be a valid RFC3339 date-time string") from exc
+
+    input_assets = record.get("input_assets")
+    output_assets = record.get("output_assets")
+    provenance_refs = record.get("provenance_refs")
+    if not isinstance(input_assets, list) or not input_assets:
+        raise ValueError("input_assets must be a non-empty array")
+    if not isinstance(output_assets, list) or not output_assets:
+        raise ValueError("output_assets must be a non-empty array")
+    if not isinstance(provenance_refs, list) or not provenance_refs:
+        raise ValueError("provenance_refs must be a non-empty array")
+    for asset in input_assets + output_assets:
+        _validate_asset_ref(asset)
+    for provenance_ref in provenance_refs:
+        _validate_provenance_ref(provenance_ref)
+
+
+def build_job_record(
+    manifest_path: Path,
+    rules_path: Path,
+    results: dict[str, Any],
+    rules: dict[str, Any],
+    *,
+    target_stage: str,
+    attempt: int,
+    agent_owner: str,
+) -> dict[str, Any]:
     transition_target = rules.get("transition_gate", {}).get("target_stage", "rollout/platform_assets")
     require_all_pass = bool(rules.get("transition_gate", {}).get("require_all_required_checks_pass", True))
     allowed = results["all_required_checks_passed"] if require_all_pass else True
+    job_id = f"media-output-validation-{_utc_basic_timestamp()}"
+    primary_track_id = str(
+        next((track.get("track_id") for track in results["track_results"] if track.get("track_id")), "batch-validation")
+    )
+    status = "succeeded" if allowed else "failed"
 
     return {
-        "job_type": "media_output_validation",
-        "timestamp": _utc_now(),
-        "manifest_path": str(manifest_path),
-        "rules_path": str(rules_path),
-        "summary": {
-            "all_required_checks_passed": results["all_required_checks_passed"],
-            "tracks_evaluated": len(results["track_results"]),
-        },
-        "tracks": results["track_results"],
-        "transition_gate": {
-            "target_stage": transition_target,
-            "allowed": allowed,
-            "reason": "all required checks passed" if allowed else "one or more required checks failed",
-        },
+        "job_id": job_id,
+        "track_id": primary_track_id,
+        "stage": target_stage or transition_target,
+        "input_assets": [
+            _asset_ref("manifest", str(manifest_path)),
+            _asset_ref("quality_rules", str(rules_path)),
+        ],
+        "output_assets": [
+            _asset_ref("validation_summary", f"stdout://validate_media_outputs/{job_id}"),
+        ],
+        "agent_owner": agent_owner,
+        "status": status,
+        "attempt": attempt,
+        "created_at": _utc_now(),
+        "provenance_refs": [
+            _provenance_ref("validation_result", "all_required_checks_passed", str(results["all_required_checks_passed"]).lower()),
+            _provenance_ref("tracks_evaluated", str(len(results["track_results"]))),
+        ],
     }
+
+
+def write_job_record(path: Path, payload: dict[str, Any], schema: dict[str, Any]) -> None:
+    validate_job_record_schema(payload, schema)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps(payload, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
 
 def parse_args() -> argparse.Namespace:
@@ -269,15 +388,17 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--manifest", default="projects/jrt/metadata/track_manifest.json", help="Path to track manifest JSON")
     parser.add_argument("--rules", default="projects/jrt/metadata/quality_rules.json", help="Path to quality rules JSON")
     parser.add_argument(
-        "--job-records",
-        default="projects/jrt/metadata/job_records.jsonl",
-        help="JSONL file where validation pass/fail job records are appended",
+        "--jobs-dir",
+        default="projects/jrt/metadata/jobs",
+        help="Directory where one schema-compliant media job JSON file is written per run",
     )
     parser.add_argument(
         "--target-stage",
         default="rollout/platform_assets",
         help="Target stage to gate (must match transition_gate.target_stage to evaluate allow/deny)",
     )
+    parser.add_argument("--attempt", type=int, default=1, help="Attempt number for this run (must be >= 1)")
+    parser.add_argument("--agent-owner", default="MediaAgent", help="Agent owner recorded in the job record")
     return parser.parse_args()
 
 
@@ -286,34 +407,70 @@ def main() -> int:
     repo_root = Path.cwd()
     manifest_path = Path(args.manifest)
     rules_path = Path(args.rules)
-    job_records_path = Path(args.job_records)
+    jobs_dir = Path(args.jobs_dir)
+    schema_path = Path("projects/jrt/metadata/schema/media_job.schema.json")
 
     try:
         manifest = _load_json(manifest_path)
         rules = _load_json(rules_path)
+        schema = _load_json(schema_path)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
     results = validate_tracks(manifest, rules, repo_root)
-    record = build_job_record(manifest_path, rules_path, results, rules)
+    record = build_job_record(
+        manifest_path,
+        rules_path,
+        results,
+        rules,
+        target_stage=args.target_stage,
+        attempt=args.attempt,
+        agent_owner=args.agent_owner,
+    )
 
     gate_target = rules.get("transition_gate", {}).get("target_stage", "rollout/platform_assets")
     if args.target_stage != gate_target:
-        record["transition_gate"]["allowed"] = False
-        record["transition_gate"]["reason"] = (
-            f"target stage mismatch: expected '{gate_target}', got '{args.target_stage}'"
+        record["status"] = "blocked"
+        record["provenance_refs"].append(
+            _provenance_ref(
+                "gate_mismatch",
+                "target_stage",
+                f"expected={gate_target};got={args.target_stage}",
+            )
         )
+    allowed = record["status"] == "succeeded"
 
-    write_job_record(job_records_path, record)
+    timestamp = record["created_at"].replace("-", "").replace(":", "").replace(".", "")
+    timestamp = timestamp.replace("+0000", "").replace("+00:00", "").replace("Z", "")
+    filename = f"{timestamp}Z__{record['job_id']}.json"
+    job_record_path = jobs_dir / filename
+    record["output_assets"][0]["path"] = str(job_record_path)
+    record["provenance_refs"].append(_provenance_ref("schema", "media_job.schema.json", str(schema_path)))
 
-    allowed = bool(record["transition_gate"]["allowed"])
-    print(json.dumps(record["summary"], indent=2, sort_keys=True))
+    try:
+        write_job_record(job_record_path, record, schema)
+    except ValueError as exc:
+        print(f"ERROR: generated job artifact failed schema validation: {exc}", file=sys.stderr)
+        return 2
+
+    print(
+        json.dumps(
+            {
+                "all_required_checks_passed": results["all_required_checks_passed"],
+                "tracks_evaluated": len(results["track_results"]),
+                "job_record_path": str(job_record_path),
+                "status": record["status"],
+            },
+            indent=2,
+            sort_keys=True,
+        )
+    )
     if allowed:
-        print(f"GATE: PASS -> transition to {record['transition_gate']['target_stage']} allowed")
+        print(f"GATE: PASS -> transition to {gate_target} allowed")
         return 0
 
-    print(f"GATE: FAIL -> transition to {record['transition_gate']['target_stage']} blocked")
+    print(f"GATE: FAIL -> transition to {gate_target} blocked")
     return 1
 
 

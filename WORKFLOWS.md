@@ -126,7 +126,9 @@ steps:
      owner: MediaAgent
      notes:
        - Emit exactly one JSON file under projects/jrt/metadata/jobs/ per autonomous run
+       - Filename contract: `<created_at>__<job_id>.json` where `created_at` is UTC ISO-8601 basic timestamp (`YYYYMMDDTHHMMSSZ`)
        - Validate emitted file against projects/jrt/metadata/schema/media_job.schema.json
+       - Current emitter: `python pipelines/validate_media_outputs.py --jobs-dir projects/jrt/metadata/jobs`
        - Block workflow progression if validation fails or file is missing
   4. catalog_music        # Extract and store track metadata
      owner: MediaAgent
