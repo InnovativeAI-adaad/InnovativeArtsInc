@@ -83,6 +83,65 @@
       },
       "minItems": 1
     },
+    "remediation_attempts": {
+      "type": "array",
+      "description": "Optional remediation-orchestration attempt log for failed validation checks.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "attempt",
+          "failure_type",
+          "action",
+          "status",
+          "backoff_seconds",
+          "checks",
+          "details",
+          "timestamp"
+        ],
+        "properties": {
+          "attempt": {
+            "type": "integer",
+            "minimum": 1
+          },
+          "failure_type": {
+            "type": "string",
+            "enum": [
+              "mixing-level",
+              "metadata-level",
+              "structure-level"
+            ]
+          },
+          "action": {
+            "type": "string",
+            "minLength": 1
+          },
+          "status": {
+            "type": "string",
+            "minLength": 1
+          },
+          "backoff_seconds": {
+            "type": "number",
+            "minimum": 0
+          },
+          "checks": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1
+            }
+          },
+          "details": {
+            "type": "string",
+            "minLength": 1
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      }
+    },
     "generation_config": {
       "type": "object",
       "description": "Generation-time model and prompt controls used to create media outputs. Canonical field names use snake_case; legacy names are accepted during migration.",
