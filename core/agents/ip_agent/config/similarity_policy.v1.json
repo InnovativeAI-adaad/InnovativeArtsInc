@@ -1,0 +1,26 @@
+{
+  "version": "1.0.0",
+  "decision_policy": "max_similarity",
+  "confidence_floor": 0.4,
+  "thresholds": {
+    "revise": 0.75,
+    "block": 0.9
+  },
+  "methods": {
+    "metadata": {
+      "version": "1.0.0",
+      "model_id": "jaccard-tokenizer-v1",
+      "required_for_release_intent": true
+    },
+    "fingerprint": {
+      "version": "1.0.0",
+      "model_id": "fingerprint-cosine-v1",
+      "required_for_release_intent": true
+    },
+    "embedding": {
+      "version": "1.0.0",
+      "model_id": "embedding-cosine-v1",
+      "required_for_release_intent": true
+    }
+  }
+}
