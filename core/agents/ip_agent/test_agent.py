@@ -150,17 +150,26 @@ class IPAgentSimilarityPolicyTests(unittest.TestCase):
         revise: float = 0.75,
         block: float = 0.9,
         version: str = "1.0.0",
-        *,
-        decision_policy: str = "max_similarity",
-        method_weights: dict[str, float] | None = None,
-        required_methods: dict[str, bool] | None = None,
+        methods: dict | None = None,
     ) -> str:
         temp_dir = tempfile.mkdtemp(prefix="ip-policy-")
         path = Path(temp_dir) / "policy.json"
-        required_methods = required_methods or {
-            "metadata": True,
-            "fingerprint": True,
-            "embedding": True,
+        policy_methods = methods or {
+            "metadata": {
+                "version": "1.0.0",
+                "model_id": "jaccard-v1",
+                "required_for_release_intent": True,
+            },
+            "fingerprint": {
+                "version": "1.0.0",
+                "model_id": "fingerprint-v1",
+                "required_for_release_intent": True,
+            },
+            "embedding": {
+                "version": "1.0.0",
+                "model_id": "embedding-v1",
+                "required_for_release_intent": True,
+            },
         }
         path.write_text(
             json.dumps(
@@ -170,23 +179,7 @@ class IPAgentSimilarityPolicyTests(unittest.TestCase):
                     "method_weights": method_weights or {},
                     "confidence_floor": 0.3,
                     "thresholds": {"revise": revise, "block": block},
-                    "methods": {
-                        "metadata": {
-                            "version": "1.0.0",
-                            "model_id": "jaccard-v1",
-                            "required_for_release_intent": bool(required_methods.get("metadata")),
-                        },
-                        "fingerprint": {
-                            "version": "1.0.0",
-                            "model_id": "fingerprint-v1",
-                            "required_for_release_intent": bool(required_methods.get("fingerprint")),
-                        },
-                        "embedding": {
-                            "version": "1.0.0",
-                            "model_id": "embedding-v1",
-                            "required_for_release_intent": bool(required_methods.get("embedding")),
-                        },
-                    },
+                    "methods": policy_methods,
                 }
             ),
             encoding="utf-8",
@@ -390,6 +383,81 @@ class IPAgentSimilarityPolicyTests(unittest.TestCase):
         self.assertFalse(result["ok"])
         self.assertEqual(result["stage_result_code"], "failure:similarity_audit_exception")
         self.assertIn("Missing required similarity inputs", result["error"])
+        mock_append_entries.assert_not_called()
+        self.assertEqual(mock_append_metric.call_count, 1)
+
+    def test_build_strategies_respects_configured_method_subset(self) -> None:
+        policy_path = self._policy_file(
+            methods={
+                "embedding": {
+                    "version": "9.9.9",
+                    "model_id": "embedding-v99",
+                    "required_for_release_intent": False,
+                }
+            }
+        )
+        policy = agent._load_similarity_policy({"similarity_policy_path": policy_path})
+
+        strategies = agent._build_strategies(policy)
+
+        self.assertEqual(len(strategies), 1)
+        self.assertEqual(strategies[0].method, "embedding")
+        self.assertEqual(strategies[0].version, "9.9.9")
+        self.assertEqual(strategies[0].model_id, "embedding-v99")
+
+    def test_load_similarity_policy_raises_for_unknown_method(self) -> None:
+        policy_path = self._policy_file(
+            methods={
+                "metadata": {
+                    "version": "1.0.0",
+                    "model_id": "jaccard-v1",
+                    "required_for_release_intent": True,
+                },
+                "unknown_method": {
+                    "version": "0.0.1",
+                    "model_id": "custom-v1",
+                    "required_for_release_intent": False,
+                },
+            }
+        )
+
+        with self.assertRaisesRegex(ValueError, "unsupported methods: unknown_method"):
+            agent._load_similarity_policy({"similarity_policy_path": policy_path})
+
+    @patch("core.agents.ip_agent.agent.append_stage_metric")
+    @patch("core.agents.ip_agent.agent.append_provenance_entries")
+    def test_run_enforces_required_release_method_for_subset_policy(self, mock_append_entries, mock_append_metric) -> None:
+        mock_append_entries.return_value = [{"artifact_hash": "abc123"}]
+        policy_path = self._policy_file(
+            methods={
+                "metadata": {
+                    "version": "1.2.3",
+                    "model_id": "jaccard-v123",
+                    "required_for_release_intent": True,
+                },
+                "embedding": {
+                    "version": "2.0.0",
+                    "model_id": "embedding-v2",
+                    "required_for_release_intent": False,
+                },
+            }
+        )
+
+        result = agent.run(
+            {
+                "job_id": "job-release-subset",
+                "track_id": "track-release-subset",
+                "output_files": ["registry/provenance_log.jsonl"],
+                "release_intent": True,
+                "embedding": [0.1, 0.2, 0.3],
+                "similarity_policy_path": policy_path,
+            }
+        )
+
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["stage_result_code"], "failure:similarity_audit_exception")
+        self.assertIn("Missing required similarity inputs", result["error"])
+        self.assertIn("metadata", result["error"])
         mock_append_entries.assert_not_called()
         self.assertEqual(mock_append_metric.call_count, 1)
 
