@@ -57,12 +57,15 @@ Expected result: scaffold directories are ensured and registry baseline artifact
 
 ## Repository Layout
 
-The repository includes a production scaffold for the **Red Dirt Revelation: The Sovereign Ledger** initiative:
+Current checked-in layout (fresh clone):
 
-- `core/` for ADAAD engine modules and agent logic
-- `projects/jrt/` for audio, lyrics, metadata, visuals, and rollout assets
-- `registry/` for version/provenance state
-- `pipelines/` for ingestion and release automation scripts
+- `core/agents`, `core/gatekeeper`, `core/governance`
+- `services/*` modules (for example: `ar_orchestrator`, `creative_planner`, `growth_ops`, `media_conductor`, `media_generation`, `release_pipeline`, `rights_ledger`)
+- `pipelines/*`
+- `projects/jrt/metadata/*` (currently `incidents`, `jobs`, `schema`)
+- `registry/*`
+
+Note: `./init_engine.sh` can scaffold additional directories at runtime that may not be present in a fresh clone.
 
 ## Operational Notes
 
