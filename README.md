@@ -10,6 +10,10 @@
 
 InnovativeArtsInc is a music repository and creative platform that combines AI-powered automation with artistic production. The project is fully integrated with the **ADAAD-Agent** autonomous AI system for development, documentation, catalog management, and marketing workflows.
 
+## 📚 Documentation Map
+
+Use [`DOCS_INDEX.md`](./DOCS_INDEX.md) to quickly identify which documents are normative vs informational, who should edit them, and when to use each one.
+
 ---
 
 ## 🤖 Autonomous Agent
