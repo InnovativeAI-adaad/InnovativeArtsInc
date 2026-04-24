@@ -40,6 +40,7 @@ class SimilarityPolicy:
     block_threshold: float
     confidence_floor: float
     decision_policy: str
+    configured_methods: tuple[str, ...]
     required_methods_release_intent: set[str]
     strategy_versions: dict[str, str]
     strategy_model_ids: dict[str, str | None]
@@ -91,6 +92,13 @@ class EmbeddingSimilarityStrategy(SimilarityStrategy):
         if left_vec is None or right_vec is None:
             return None
         return _cosine_similarity(left_vec, right_vec)
+
+
+STRATEGY_REGISTRY: dict[str, type[SimilarityStrategy]] = {
+    MetadataSimilarityStrategy.method: MetadataSimilarityStrategy,
+    FingerprintSimilarityStrategy.method: FingerprintSimilarityStrategy,
+    EmbeddingSimilarityStrategy.method: EmbeddingSimilarityStrategy,
+}
 
 
 def info() -> dict:
@@ -282,6 +290,12 @@ def _load_similarity_policy(payload: dict) -> SimilarityPolicy:
 
     thresholds = raw_policy.get("thresholds") or {}
     methods = raw_policy.get("methods") or {}
+    configured_methods = tuple(methods.keys())
+    unknown_methods = sorted(set(configured_methods) - set(STRATEGY_REGISTRY))
+    if unknown_methods:
+        raise ValueError(
+            "Similarity policy defines unsupported methods: " + ", ".join(unknown_methods)
+        )
     required_methods = {
         name for name, method_cfg in methods.items() if bool((method_cfg or {}).get("required_for_release_intent"))
     }
@@ -295,6 +309,7 @@ def _load_similarity_policy(payload: dict) -> SimilarityPolicy:
         block_threshold=float(thresholds.get("block")),
         confidence_floor=float(raw_policy.get("confidence_floor", 0.0)),
         decision_policy=str(raw_policy.get("decision_policy", "max_similarity")),
+        configured_methods=configured_methods,
         required_methods_release_intent=required_methods,
         strategy_versions=strategy_versions,
         strategy_model_ids=strategy_model_ids,
@@ -327,20 +342,18 @@ def _ensure_release_similarity_inputs(
 
 
 def _build_strategies(policy: SimilarityPolicy) -> list[SimilarityStrategy]:
-    return [
-        MetadataSimilarityStrategy(
-            version=policy.strategy_versions.get("metadata", "unknown"),
-            model_id=policy.strategy_model_ids.get("metadata"),
-        ),
-        FingerprintSimilarityStrategy(
-            version=policy.strategy_versions.get("fingerprint", "unknown"),
-            model_id=policy.strategy_model_ids.get("fingerprint"),
-        ),
-        EmbeddingSimilarityStrategy(
-            version=policy.strategy_versions.get("embedding", "unknown"),
-            model_id=policy.strategy_model_ids.get("embedding"),
-        ),
-    ]
+    strategies: list[SimilarityStrategy] = []
+    for method in policy.configured_methods:
+        strategy_type = STRATEGY_REGISTRY.get(method)
+        if strategy_type is None:
+            continue
+        strategies.append(
+            strategy_type(
+                version=policy.strategy_versions.get(method, "unknown"),
+                model_id=policy.strategy_model_ids.get(method),
+            )
+        )
+    return strategies
 
 
 def run_similarity_audit(payload: dict) -> dict:
