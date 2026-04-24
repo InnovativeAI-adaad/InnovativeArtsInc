@@ -22,7 +22,10 @@ def run(input=None) -> dict:
     asset_type = payload.get("asset_type", "unknown")
     if not file_path:
         return {"ok": False, "error": "file_path is required"}
-    return {"ok": True, "entry": generate_provenance_entry(file_path, asset_type)}
+    try:
+        return {"ok": True, "entry": generate_provenance_entry(file_path, asset_type)}
+    except Exception as exc:
+        return {"ok": False, "error": str(exc), "file_path": file_path}
 
 
 def mutate(src: str) -> str:
