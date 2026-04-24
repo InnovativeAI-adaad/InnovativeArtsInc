@@ -17,6 +17,41 @@ CONFIG_PATH = Path("projects/jrt/metadata/agent_runtime_config.json")
 INCIDENT_DIR = Path("projects/jrt/metadata/incidents")
 
 
+LEVEL_3_ACTIONS: frozenset[str] = frozenset(
+    {
+        "merge_pr_main",
+        "deploy_production",
+        "modify_secrets_or_env",
+        "delete_branch_or_file",
+        "modify_ci_cd",
+        "publish_release",
+        "modify_governance_docs",
+    }
+)
+
+
+def _is_level_3_action(job_payload: dict[str, Any]) -> bool:
+    action = job_payload.get("action")
+    if isinstance(action, str) and action in LEVEL_3_ACTIONS:
+        return True
+
+    tier = str(job_payload.get("tier", "")).strip().lower()
+    return tier in {"3", "tier3", "tier_3", "level3", "level_3", "level 3"}
+
+
+def _run_pre_execution_checks(job_payload: dict[str, Any]) -> None:
+    if not _is_level_3_action(job_payload):
+        return
+
+    required_scope = job_payload.get("required_scope") or job_payload.get("action") or "level_3"
+    if not isinstance(required_scope, str) or not required_scope:
+        raise DeterministicAgentError("required_scope must be provided for Level 3 actions")
+
+    try:
+        validate_ratification(job_payload, required_scope=required_scope)
+    except RatificationValidationError as exc:
+        raise DeterministicAgentError(f"ratification validation failed: {exc}") from exc
+
 @dataclass(frozen=True)
 class RetryPolicy:
     max_attempts: int
@@ -137,6 +172,7 @@ def execute_with_retry_policy(
     for attempt in range(1, retry_policy.max_attempts + 1):
         attempt_id = str(uuid4())
         try:
+            _run_pre_execution_checks(job_payload)
             result = runner(job_payload)
             if result.get("ok"):
                 return {

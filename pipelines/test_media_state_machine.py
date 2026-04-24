@@ -114,5 +114,24 @@ class MediaStateMachineTests(unittest.TestCase):
         self.assertEqual(record["current_stage"], "audio_generated")
 
 
+    def test_level_3_transition_metadata_is_attached(self) -> None:
+        record = initialize_media_job_record("job-6", "author")
+
+        for stage in MEDIA_STAGES[1:]:
+            runtime_payload = None
+            if stage == "generation_strategized":
+                runtime_payload = self._strategized_payload()
+            if stage == "generation_strategy_locked":
+                runtime_payload = self._lock_payload()
+            record = transition_media_job(record, stage, "worker", runtime_payload=runtime_payload)
+
+        provenance_event = next(event for event in record["transition_log"] if event["to_stage"] == "provenance_written")
+        rollout_event = next(event for event in record["transition_log"] if event["to_stage"] == "rollout_packaged")
+
+        self.assertEqual(provenance_event["transition_metadata"]["ratification_scope"], "publish_release")
+        self.assertEqual(rollout_event["transition_metadata"]["ratification_scope"], "deploy_production")
+        self.assertTrue(rollout_event["transition_metadata"]["can_invoke_level_3"])
+
+
 if __name__ == "__main__":
     unittest.main()

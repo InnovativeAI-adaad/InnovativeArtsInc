@@ -1,0 +1,4 @@
+POLICY_START
+action_id|risk_level|requires_human_ratification|abort_mode
+merge_pr_main|high|sometimes|hard_stop
+POLICY_END
