@@ -43,8 +43,8 @@
 | `list_branches`       | GitHub MCP   | 🟢 1  | List all branches                    |
 | `create_branch`       | GitHub MCP   | 🟡 2  | Create a new branch                  |
 | `commit_files`        | GitHub MCP   | 🟡 2  | Commit one or more files             |
-| `open_pr`             | GitHub MCP   | 🟡 2  | Open a pull request (draft)          |
-| `merge_pr`            | GitHub MCP   | 🟡 2  | Merge PR to dev/staging              |
+| `open_pr_draft`             | GitHub MCP   | 🟡 2  | Open a pull request (draft)          |
+| `merge_pr_dev_staging`            | GitHub MCP   | 🟡 2  | Merge PR to dev/staging              |
 | `create_issue`        | GitHub MCP   | 🟢 1  | Create a labeled issue               |
 | `comment_on_pr`       | GitHub MCP   | 🟢 1  | Post review comment on PR            |
 | `close_issue`         | GitHub MCP   | 🟡 2  | Close issue with reason              |
@@ -56,7 +56,7 @@
 
 | Tool                  | Source          | Level | Description                        |
 |----------------------|----------------|-------|------------------------------------|
-| `send_email`          | Gmail MCP       | 🟡 2  | Send notification email to owner   |
+| `send_email_owner`          | Gmail MCP       | 🟡 2  | Send notification email to owner   |
 | `read_inbox`          | Gmail MCP       | 🟢 1  | Read incoming emails               |
 | `create_calendar_event`| Calendar MCP   | 🟡 2  | Schedule a project milestone       |
 | `list_calendar`       | Calendar MCP    | 🟢 1  | Read upcoming project events       |
@@ -67,9 +67,9 @@
 
 | Tool                  | Source       | Level | Description                          |
 |----------------------|-------------|-------|--------------------------------------|
-| `web_search`          | Claude API   | 🟢 1  | Search the web for docs/info         |
+| `web_search_trends`      | Claude API   | 🟡 2  | Research-only web lookup             |
 | `fetch_url`           | Claude API   | 🟢 1  | Fetch and read a specific URL        |
-| `search_npm`          | web_search   | 🟢 1  | Find packages and docs on npm        |
+| `search_npm`          | web_search_trends | 🟢 1  | Find packages and docs on npm        |
 | `search_github`       | GitHub MCP   | 🟢 1  | Search GitHub for code/issues/users  |
 
 ---
@@ -126,3 +126,5 @@ All agent tool calls must follow this structure for logging and traceability:
 ---
 
 *Last updated by: Dustin L. Reid | Auto-maintained by ADAAD-Agent (Level 1)*
+
+*Changelog: Terminology normalization — aligned action aliases to `AUTONOMY.md` §1 canonical identifiers (`open_pr_draft`, `merge_pr_dev_staging`, `send_email_owner`, `web_search_trends`).*
