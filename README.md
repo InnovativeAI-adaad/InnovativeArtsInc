@@ -12,20 +12,20 @@ InnovativeArtsInc is an AI-assisted music and creative operations repository for
 
 ## Quick Links
 
-### Agent and Governance Docs
+`DOCS_INDEX.md` is the canonical documentation map for governance and operational navigation: [`DOCS_INDEX.md`](./DOCS_INDEX.md).
 
-| Document | Purpose |
+| Document | Use |
 |---|---|
-| [`AGENT.md`](./AGENT.md) | Agent identity, directives, and autonomy levels |
-| [`AUTONOMY.md`](./AUTONOMY.md) | Capability and permission boundaries |
-| [`TOOLS.md`](./TOOLS.md) | Tool registry across integrations |
-| [`MCP_SERVERS.md`](./MCP_SERVERS.md) | MCP server connections and configuration |
-| [`WORKFLOWS.md`](./WORKFLOWS.md) | Automated workflow definitions |
-| [`MEMORY.md`](./MEMORY.md) | Agent memory and state architecture |
-| [`SECURITY.md`](./SECURITY.md) | Security policies for agent operations |
-| [`GOVERNANCE.md`](./GOVERNANCE.md) | Constitutional subordination contract (ADAAD HUMAN-0 authority model) |
-| [`MCP_REGISTRY.md`](./MCP_REGISTRY.md) | Authoritative MCP server registry (Gate IAI-G2 source of truth) |
-| [`AGENT_LOG.md`](./AGENT_LOG.md) | HMAC-chained append-only audit ledger for all agent actions |
+| [`AGENT.md`](./AGENT.md) | Agent directives |
+| [`AUTONOMY.md`](./AUTONOMY.md) | Permission tiers |
+| [`MCP_REGISTRY.md`](./MCP_REGISTRY.md) | Authorized MCP servers |
+| [`MCP_SERVERS.md`](./MCP_SERVERS.md) | MCP integration details |
+| [`WORKFLOWS.md`](./WORKFLOWS.md) | Workflow definitions |
+| [`TOOLS.md`](./TOOLS.md) | Tool inventory |
+| [`MEMORY.md`](./MEMORY.md) | Memory/state model |
+| [`SECURITY.md`](./SECURITY.md) | Security policy |
+| [`GOVERNANCE.md`](./GOVERNANCE.md) | Governance policy |
+| [`AGENT_LOG.md`](./AGENT_LOG.md) | Audit ledger |
 
 ## Installation and Quickstart
 
