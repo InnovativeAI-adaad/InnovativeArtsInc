@@ -122,19 +122,42 @@ steps:
          - projects/jrt/metadata/schema/ingest-summary.schema.json
          - projects/jrt/metadata/schema/media_job.schema.json
        - If any schema is missing, block ingest to prevent orphan assets
-  3. generate_metadata    # Emit per-run job metadata (hard gate)
+  3. generate_metadata    # Compose generation prompt package
+     owner: MediaAgent
+     notes:
+       - Build prompt package with required `generate_music` params: `prompt`, `style_profile`, `seed`, `length` (+ optional `tempo`, `key`)
+       - Persist package reference in job record fields `input_assets` and `provenance_refs` for replay/audit
+       - Set `stage` to generation-prep and emit `status: running` with current `attempt`
+  4. generate_music       # Execute auditable music generation
+     owner: MediaAgent
+     notes:
+       - Must use contracted provider interface and capture provider generation ID
+       - Required outputs: `audio_path`, `render_metadata`, `uniqueness_report_ref`
+       - Record rendered artifact under `output_assets`, and attach provider/model references under `provenance_refs`
+  5. generate_metadata    # Run uniqueness/similarity gate
+     owner: IPAgent
+     notes:
+       - Evaluate generated audio against similarity thresholds before catalog/tag
+       - Write gate metrics and decision artifact, then reference artifact via `provenance_refs` using `uniqueness_report_ref`
+       - Set media job `status` to `blocked` when gate fails, otherwise continue with `status: running`
+  6. generate_metadata    # Emit per-run job metadata (hard gate)
      owner: MediaAgent
      notes:
        - Emit exactly one JSON file under projects/jrt/metadata/jobs/ per autonomous run
        - Filename contract: `<created_at>__<job_id>.json` where `created_at` is UTC ISO-8601 basic timestamp (`YYYYMMDDTHHMMSSZ`)
        - Validate emitted file against projects/jrt/metadata/schema/media_job.schema.json
+       - Required schema fields in emitted record: `job_id`, `track_id`, `stage`, `input_assets`, `output_assets`, `agent_owner`, `status`, `attempt`, `created_at`, `provenance_refs`
        - Current emitter: `python pipelines/validate_media_outputs.py --jobs-dir projects/jrt/metadata/jobs`
        - Block workflow progression if validation fails or file is missing
-  4. catalog_music        # Extract and store track metadata
+  7. catalog_music        # Extract and store track metadata
      owner: MediaAgent
-  5. tag_audio            # Apply ID3 tags if missing
+     notes:
+       - Execute only when uniqueness/similarity gate has passed and job `status` is not `blocked`
+  8. tag_audio            # Apply ID3 tags if missing
      owner: MediaAgent
-  6. generate_metadata    # Finalize and persist ingest artifacts
+     notes:
+       - Execute only when uniqueness/similarity gate has passed and generated `audio_path` is approved
+  9. generate_metadata    # Finalize and persist ingest artifacts
      owner: IPAgent
      notes:
        - Build rollout package for downstream distribution
@@ -144,9 +167,9 @@ steps:
          - update provenance/log
          - append ingest summary entry
          - include the emitted media job file path from projects/jrt/metadata/jobs/
-  7. create_issue         # "New tracks added: [list]"
+  10. create_issue         # "New tracks added: [list]"
      owner: MediaAgent
-  8. write_agent_log      # Record catalog update and artifact paths + job record path
+  11. write_agent_log      # Record catalog update and artifact paths + job record path
      owner: MediaAgent
 
 rollback:
@@ -154,6 +177,7 @@ rollback:
   - If expected metadata file is missing under projects/jrt/metadata/: stop ingest batch, create issue, and mark run as blocked (no partial ingest)
   - If planned schema files are missing: fail fast before catalog step and record "orphan-asset prevention gate tripped"
   - If the per-run media job JSON is missing or fails schema validation: fail fast before catalog step and record "media-job gate tripped"
+  - If uniqueness/similarity gate fails: block release packaging, emit issue containing similarity metrics + report reference, and require prompt/model revision before retry attempt
 ```
 
 ---

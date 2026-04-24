@@ -90,10 +90,27 @@
 | Tool                  | Source       | Level | Description                          |
 |----------------------|-------------|-------|--------------------------------------|
 | `catalog_music`       | Custom       | 🟡 2  | Catalog tracks, albums, metadata     |
+| `generate_music`      | GenAudio Provider API (contracted) | 🟡 2  | Generate auditable music renders from structured prompt packages |
 | `generate_metadata`   | Claude API   | 🟡 2  | Generate descriptions for tracks     |
 | `tag_audio`           | Custom       | 🟡 2  | Write ID3 tags to audio files        |
 | `draft_press_release` | Claude API   | 🟡 2  | Write artist/release press copy      |
 | `generate_lyrics`     | Claude API   | 🟡 2  | Generate song lyrics from brief      |
+
+#### `generate_music` contract (media)
+
+- **Source/provider contract:** `GenAudio Provider API (contracted)` must return deterministic render metadata for each request and expose a provider-side generation ID that can be recorded in run provenance.
+- **Autonomy level:** 🟡 **Level 2** (write-producing, release-impacting media generation).
+- **Required params:**
+  - `prompt` (string)
+  - `style_profile` (string/object profile id)
+  - `seed` (integer/string; required for replayability)
+  - `length` (duration in seconds)
+  - `tempo` (optional)
+  - `key` (optional)
+- **Required outputs:**
+  - `audio_path` (rendered asset path)
+  - `render_metadata` (provider generation ID, model/version, timestamp, and render settings)
+  - `uniqueness_report_ref` (reference to similarity/uniqueness gate artifact)
 
 ---
 
