@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from core.agents.ip_agent.hasher import generate_provenance_entry
+from core.agents.ip_agent.hasher import append_provenance_entries
 
 
 _DEF_NAME = "ip_agent"
@@ -18,14 +18,39 @@ def info() -> dict:
 
 def run(input=None) -> dict:
     payload = input or {}
+    output_files = payload.get("output_files")
     file_path = payload.get("file_path")
-    asset_type = payload.get("asset_type", "unknown")
-    if not file_path:
-        return {"ok": False, "error": "file_path is required"}
+
+    if output_files is None:
+        output_files = [file_path] if file_path else []
+
+    if not output_files:
+        return {"ok": False, "error": "At least one output artifact is required"}
+
+    job_id = payload.get("job_id")
+    track_id = payload.get("track_id")
+
+    if not job_id or not track_id:
+        return {"ok": False, "error": "job_id and track_id are required"}
+
     try:
-        return {"ok": True, "entry": generate_provenance_entry(file_path, asset_type)}
+        entries = append_provenance_entries(
+            output_files,
+            job_id=job_id,
+            track_id=track_id,
+            agent=payload.get("agent", _DEF_NAME),
+            parent_artifact_hash=payload.get("parent_artifact_hash"),
+            log_path=payload.get("provenance_log_path", "registry/provenance_log.jsonl"),
+        )
+        return {"ok": True, "entries": entries}
     except Exception as exc:
-        return {"ok": False, "error": str(exc), "file_path": file_path}
+        return {
+            "ok": False,
+            "error": f"Provenance append failed; blocking pipeline completion: {exc}",
+            "output_files": output_files,
+            "job_id": job_id,
+            "track_id": track_id,
+        }
 
 
 def mutate(src: str) -> str:
@@ -33,6 +58,6 @@ def mutate(src: str) -> str:
 
 
 def score(output: dict) -> float:
-    if output.get("ok") and output.get("entry"):
+    if output.get("ok") and output.get("entries"):
         return 1.0
     return 0.0
