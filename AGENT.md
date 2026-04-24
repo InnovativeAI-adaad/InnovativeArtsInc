@@ -4,7 +4,7 @@
 > **Org:** [@InnovativeAI-adaad](https://github.com/InnovativeAI-adaad)  
 > **Owner:** Dustin L. Reid (`dreezy66`)  
 > **Site:** [adaad.pro](http://adaad.pro)  
-> **Version:** 1.0.0
+> **Version:** 1.0.1
 
 ---
 
@@ -16,43 +16,63 @@ This document defines the configuration, identity, permissions, and behavioral r
 
 ## 2. Agent Identity
 
-| Field           | Value                                      |
-|----------------|--------------------------------------------|
-| Agent Name      | `ADAAD-Agent`                             |
-| Scope           | InnovativeArtsInc repository & services   |
-| Primary Owner   | `InnovativeAI-adaad`                      |
-| Auth Method     | GitHub App Private Key + PAT              |
-| Runtime         | Cloud / Local (see `TOOLS.md`)            |
-| MCP Enabled     | Yes (see `MCP_SERVERS.md`)                |
+| Field | Value |
+|---|---|
+| Agent Name | `ADAAD-Agent` |
+| Scope | InnovativeArtsInc repository & services |
+| Primary Owner | `InnovativeAI-adaad` |
+| Auth Method | GitHub App Private Key + PAT |
+| Runtime | Cloud / Local (see `TOOLS.md`) |
+| MCP Enabled | Yes (see `MCP_SERVERS.md`) |
 
 ---
 
 ## 3. Autonomy Levels
 
-Agents operating in this repo follow a tiered autonomy model:
+> This section mirrors the canonical matrix in `AUTONOMY.md` exactly (same action names and tiers).
 
 ### 🟢 Level 1 — Fully Autonomous (No approval needed)
-- Reading files, branches, and commit history
-- Running tests and linters
-- Creating draft PRs
-- Posting comments on issues
-- Searching the web for documentation
-- Generating and committing docs to `docs/` branch
+- `read_repo`
+- `list_branches`
+- `read_issue`
+- `classify_issue`
+- `assign_labels`
+- `comment_on_issue`
+- `comment_on_pr`
+- `search_github`
+- `run_tests`
+- `lint_code`
+- `create_issue`
+- `read_agent_log`
+- `write_agent_log`
 
 ### 🟡 Level 2 — Semi-Autonomous (Log + notify owner)
-- Merging PRs to `dev` or `staging` branches
-- Creating new branches
-- Publishing releases (draft)
-- Sending emails / notifications
-- Updating dependency versions (patch-level only)
+- `create_branch`
+- `commit_files`
+- `open_pr_draft`
+- `review_code`
+- `close_issue`
+- `merge_pr_dev_staging`
+- `draft_release`
+- `send_email_owner`
+- `generate_readme`
+- `explain_code`
+- `catalog_music`
+- `generate_metadata`
+- `tag_audio`
+- `read_brief`
+- `web_search_trends`
+- `draft_press_release`
+- `generate_social_drafts`
 
 ### 🔴 Level 3 — Requires Human Approval
-- Merging to `main`
-- Deploying to production
-- Modifying secrets or environment variables
-- Deleting branches or files
-- Billing or payment operations
-- Modifying `AGENT.md`, `AUTONOMY.md`, or `SECURITY.md`
+- `merge_pr_main`
+- `deploy_production`
+- `modify_secrets_or_env`
+- `delete_branch_or_file`
+- `modify_ci_cd`
+- `publish_release`
+- `modify_governance_docs`
 
 ---
 
@@ -72,15 +92,17 @@ Agents operating in this repo follow a tiered autonomy model:
 
 ## 5. Entrypoints
 
-| Trigger              | Agent Action                                 | Level |
-|---------------------|----------------------------------------------|-------|
-| `push` to any branch | Run lint + tests, post result as PR comment | 🟢 1  |
-| New Issue opened     | Triage, label, assign if rules match         | 🟢 1  |
-| PR opened            | Review diff, suggest changes, create draft   | 🟡 2  |
-| PR approved by owner | Merge to `dev`                               | 🟡 2  |
-| Release tag pushed   | Build, draft release notes, notify           | 🟡 2  |
-| Manual `@ADAAD-Agent`| Execute requested task per autonomy level    | Varies|
-| Scheduled (daily)    | Summarize activity, check stale issues       | 🟢 1  |
+> Entrypoint actions and tiers must match `AUTONOMY.md` action names.
+
+| Trigger | Agent Action(s) | Tier |
+|---|---|---:|
+| `push` to any branch | `run_tests`, `lint_code`, `comment_on_pr`, `write_agent_log` | 🟢 1 |
+| New Issue opened | `read_issue`, `classify_issue`, `assign_labels`, `comment_on_issue`, `write_agent_log` | 🟢 1 |
+| PR opened | `read_repo`, `review_code`, `comment_on_pr`, `open_pr_draft`, `write_agent_log` | 🟡 2 |
+| PR approved by owner for non-main targets | `merge_pr_dev_staging`, `write_agent_log` | 🟡 2 |
+| Release tag pushed | `read_repo`, `draft_release`, `send_email_owner`, `write_agent_log` | 🟡 2 |
+| Manual `@ADAAD-Agent` | Execute requested action at matrix tier (`AUTONOMY.md`) | Varies |
+| Scheduled daily summary | `read_agent_log`, `search_github`, `send_email_owner`, `write_agent_log` | 🟡 2 |
 
 ---
 
@@ -95,18 +117,30 @@ Agents operating in this repo follow a tiered autonomy model:
 
 ## 7. Related Docs
 
-| Document             | Purpose                                      |
-|---------------------|----------------------------------------------|
-| `AUTONOMY.md`        | Detailed capability permissions              |
-| `TOOLS.md`           | Tool registry and integrations               |
-| `MCP_SERVERS.md`     | MCP server connections and config            |
-| `WORKFLOWS.md`       | Automated workflow definitions               |
-| `MEMORY.md`          | Memory and state architecture                |
-| `SECURITY.md`        | Security policies for agent operations       |
+| Document | Purpose |
+|---|---|
+| `AUTONOMY.md` | Canonical autonomy matrix and tier rules |
+| `TOOLS.md` | Tool registry and integrations |
+| `MCP_SERVERS.md` | MCP server connections and config |
+| `WORKFLOWS.md` | Automated workflow definitions |
+| `MEMORY.md` | Memory and state architecture |
+| `SECURITY.md` | Security policies for agent operations |
 
 ---
 
-## 8. Override & Shutdown
+## 8. Conflict Resolution
+
+If tier statements diverge between `AGENT.md`, `WORKFLOWS.md`, and `AUTONOMY.md`, the canonical source is `AUTONOMY.md` and its mapping must be used.
+
+---
+
+## 9. Review Gate
+
+If a change touches `AGENT.md`, `AUTONOMY.md`, or `WORKFLOWS.md`, PR review must include a **tier-diff check** confirming no drift from `AUTONOMY.md` action names/tier assignments.
+
+---
+
+## 10. Override & Shutdown
 
 To halt all autonomous operations:
 1. Set `AGENT_ENABLED=false` in repo environment variables, or
