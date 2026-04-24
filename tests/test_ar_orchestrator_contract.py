@@ -84,3 +84,61 @@ def test_writes_structured_artifact_and_registry_provenance(tmp_path, monkeypatc
 
     provenance_log = (tmp_path / "registry" / "provenance_log.jsonl").read_text(encoding="utf-8")
     assert "immutable_ref" in provenance_log
+
+
+def test_consume_queue_keeps_failed_jobs_and_writes_dead_letter(tmp_path, monkeypatch: pytest.MonkeyPatch) -> None:
+    queue_path = tmp_path / "registry" / "ar_demo_queue.jsonl"
+    orchestrator = AROrchestrator(registry_dir=tmp_path / "registry", queue_path=queue_path)
+
+    first_job = {"job_id": "job-success"}
+    second_job = {"job_id": "job-fail"}
+    queue_path.parent.mkdir(parents=True, exist_ok=True)
+    queue_path.write_text(f"{json.dumps(first_job)}\n{json.dumps(second_job)}\n", encoding="utf-8")
+
+    def fake_process_demo(job: dict) -> dict:
+        if job["job_id"] == "job-fail":
+            raise AROrchestratorError("synthetic failure")
+        return {"job_id": job["job_id"], "artifact_id": "artifact-1"}
+
+    monkeypatch.setattr(orchestrator, "process_demo", fake_process_demo)
+
+    result = orchestrator.consume_queue()
+
+    assert result["artifacts"] == [{"job_id": "job-success", "artifact_id": "artifact-1"}]
+    assert result["failure_summary"]["count"] == 1
+    assert result["failure_summary"]["jobs"][0]["job_id"] == "job-fail"
+    assert result["failure_summary"]["jobs"][0]["error_type"] == "AROrchestratorError"
+
+    remaining_lines = queue_path.read_text(encoding="utf-8").splitlines()
+    assert remaining_lines == [json.dumps(second_job)]
+
+    dead_letter_lines = (tmp_path / "registry" / "ar_demo_queue_failed.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(dead_letter_lines) == 1
+    dead_letter_entry = json.loads(dead_letter_lines[0])
+    assert dead_letter_entry["job_id"] == "job-fail"
+    assert dead_letter_entry["error_message"] == "synthetic failure"
+
+
+def test_consume_queue_rerun_does_not_duplicate_successful_artifact_writes(
+    tmp_path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    queue_path = tmp_path / "registry" / "ar_demo_queue.jsonl"
+    orchestrator = AROrchestrator(registry_dir=tmp_path / "registry", queue_path=queue_path)
+    monkeypatch.setattr(orchestrator, "_require_signing_ratification", lambda _job: None)
+
+    successful_job = _valid_payload() | {"job_id": "job-success"}
+    failing_job = _valid_payload() | {"job_id": "job-fail"}
+    del failing_job["artist_profile"]["genre"]
+    queue_path.parent.mkdir(parents=True, exist_ok=True)
+    queue_path.write_text(f"{json.dumps(successful_job)}\n{json.dumps(failing_job)}\n", encoding="utf-8")
+
+    first_run = orchestrator.consume_queue()
+    assert len(first_run["artifacts"]) == 1
+    assert first_run["failure_summary"]["count"] == 1
+
+    second_run = orchestrator.consume_queue()
+    assert second_run["artifacts"] == []
+    assert second_run["failure_summary"]["count"] == 1
+
+    artifact_lines = (tmp_path / "registry" / "ar_demo_decisions.jsonl").read_text(encoding="utf-8").splitlines()
+    assert len(artifact_lines) == 1

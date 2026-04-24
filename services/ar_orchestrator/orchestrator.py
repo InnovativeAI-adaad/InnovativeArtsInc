@@ -48,6 +48,7 @@ class AROrchestrator:
         self.queue_path = queue_path
         self.artifact_path = registry_dir / "ar_demo_decisions.jsonl"
         self.provenance_log_path = registry_dir / "provenance_log.jsonl"
+        self.dead_letter_path = registry_dir / "ar_demo_queue_failed.jsonl"
 
     def ingest_demo_endpoint(self, payload: dict[str, Any]) -> dict[str, Any]:
         for field in REQUIRED_INGEST_FIELDS:
@@ -66,18 +67,39 @@ class AROrchestrator:
         self._append_jsonl(self.queue_path, job)
         return {"ok": True, "job_id": job["job_id"], "queue_path": str(self.queue_path)}
 
-    def consume_queue(self) -> list[dict[str, Any]]:
+    def consume_queue(self) -> dict[str, Any]:
         if not self.queue_path.exists():
-            return []
+            return {"artifacts": [], "failure_summary": {"count": 0, "jobs": []}}
 
-        jobs = [json.loads(line) for line in self.queue_path.read_text(encoding="utf-8").splitlines() if line]
         artifacts: list[dict[str, Any]] = []
-        for job in jobs:
-            artifacts.append(self.process_demo(job))
+        failures: list[dict[str, Any]] = []
+        remaining_lines: list[str] = []
 
-        # truncate queue after deterministic processing
-        self.queue_path.write_text("", encoding="utf-8")
-        return artifacts
+        with self.queue_path.open("r", encoding="utf-8") as handle:
+            for line_number, raw_line in enumerate(handle, start=1):
+                stripped_line = raw_line.strip()
+                if not stripped_line:
+                    continue
+
+                job: dict[str, Any] | None = None
+                try:
+                    job = json.loads(stripped_line)
+                    artifacts.append(self.process_demo(job))
+                except Exception as exc:  # noqa: BLE001 - fail-open queue consumption by line
+                    remaining_lines.append(stripped_line)
+                    failure_entry = {
+                        "failed_at": datetime.now(timezone.utc).isoformat(),
+                        "line_number": line_number,
+                        "job_id": str(job.get("job_id", "unknown")) if isinstance(job, dict) else "unknown",
+                        "error_type": exc.__class__.__name__,
+                        "error_message": str(exc),
+                        "raw_job": stripped_line,
+                    }
+                    failures.append(failure_entry)
+                    self._append_jsonl(self.dead_letter_path, failure_entry)
+
+        self._atomic_rewrite_queue(remaining_lines)
+        return {"artifacts": artifacts, "failure_summary": {"count": len(failures), "jobs": failures}}
 
     def process_demo(self, job: dict[str, Any]) -> dict[str, Any]:
         features = self.extract_features(job)
@@ -214,3 +236,10 @@ class AROrchestrator:
         path.parent.mkdir(parents=True, exist_ok=True)
         with path.open("a", encoding="utf-8") as handle:
             handle.write(json.dumps(payload, sort_keys=True) + "\n")
+
+    def _atomic_rewrite_queue(self, lines: list[str]) -> None:
+        self.queue_path.parent.mkdir(parents=True, exist_ok=True)
+        temp_path = self.queue_path.with_name(f"{self.queue_path.name}.{uuid4().hex}.tmp")
+        payload = "".join(f"{line}\n" for line in lines)
+        temp_path.write_text(payload, encoding="utf-8")
+        temp_path.replace(self.queue_path)
