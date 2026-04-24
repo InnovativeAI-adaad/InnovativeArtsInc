@@ -77,6 +77,7 @@ def run(input=None) -> dict:
             track_id=track_id,
             agent=payload.get("agent", _DEF_NAME),
             parent_artifact_hash=payload.get("parent_artifact_hash"),
+            retry_attempt=int(payload.get("retry_attempt", payload.get("attempt", 0)) or 0),
             log_path=payload.get("provenance_log_path", "registry/provenance_log.jsonl"),
         )
         result = {"ok": True, "entries": entries}

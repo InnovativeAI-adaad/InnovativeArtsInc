@@ -70,4 +70,19 @@ Runtime observability artifacts for Sovereign Ledger are emitted to:
 - `registry/metrics.jsonl` for stage-level completion telemetry
 - `registry/dashboard_snapshot.json` for periodic queue/success/retry/failure summary snapshots
 
+### Provenance deduplication behavior
+
+The IP provenance hasher writes artifact entries to `registry/provenance_log.jsonl` using a stable dedup key:
+
+- `job_id + track_id + file + sha256`
+
+Before appending, existing JSONL rows are stream-read and indexed in-memory for O(1) duplicate checks, which prevents duplicate noise during retry/replay runs while still allowing new rows when artifact content changes (`sha256` changes).
+
+Provenance rows now include explicit retry metadata:
+
+- `retry_attempt` (integer, defaults to `0`)
+- `is_retry` (boolean marker derived from `retry_attempt > 0`)
+
+This keeps operations auditable for repeated runs without appending duplicate entries for unchanged artifacts.
+
 Use `./init_engine.sh` to re-create the baseline structure in fresh environments.
