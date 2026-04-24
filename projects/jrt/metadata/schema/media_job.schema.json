@@ -1,0 +1,137 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "projects/jrt/metadata/schema/media_job.schema.json",
+  "title": "Media Job",
+  "description": "Schema for autonomous media processing job records.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "job_id",
+    "track_id",
+    "stage",
+    "input_assets",
+    "output_assets",
+    "agent_owner",
+    "status",
+    "attempt",
+    "created_at",
+    "provenance_refs"
+  ],
+  "properties": {
+    "job_id": {
+      "type": "string",
+      "description": "Unique ID for this autonomous job run.",
+      "minLength": 1
+    },
+    "track_id": {
+      "type": "string",
+      "description": "Canonical track identifier associated with the job.",
+      "minLength": 1
+    },
+    "stage": {
+      "type": "string",
+      "description": "Workflow stage at which this job record is emitted.",
+      "minLength": 1
+    },
+    "input_assets": {
+      "type": "array",
+      "description": "Source assets consumed by this run.",
+      "items": {
+        "$ref": "#/$defs/assetRef"
+      },
+      "minItems": 1
+    },
+    "output_assets": {
+      "type": "array",
+      "description": "Assets produced by this run.",
+      "items": {
+        "$ref": "#/$defs/assetRef"
+      },
+      "minItems": 1
+    },
+    "agent_owner": {
+      "type": "string",
+      "description": "Agent responsible for this run.",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "description": "Terminal status for this run.",
+      "enum": [
+        "queued",
+        "running",
+        "succeeded",
+        "failed",
+        "blocked"
+      ]
+    },
+    "attempt": {
+      "type": "integer",
+      "description": "Attempt number for retries on the same job.",
+      "minimum": 1
+    },
+    "created_at": {
+      "type": "string",
+      "description": "UTC timestamp when job record was created.",
+      "format": "date-time"
+    },
+    "provenance_refs": {
+      "type": "array",
+      "description": "References to provenance records generated/used by this run.",
+      "items": {
+        "$ref": "#/$defs/provenanceRef"
+      },
+      "minItems": 1
+    }
+  },
+  "$defs": {
+    "assetRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "asset_id",
+        "path"
+      ],
+      "properties": {
+        "asset_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "path": {
+          "type": "string",
+          "minLength": 1
+        },
+        "sha256": {
+          "type": "string",
+          "pattern": "^[A-Fa-f0-9]{64}$"
+        },
+        "mime_type": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    },
+    "provenanceRef": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "ref_type",
+        "ref_id"
+      ],
+      "properties": {
+        "ref_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "ref_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "uri": {
+          "type": "string",
+          "minLength": 1
+        }
+      }
+    }
+  }
+}

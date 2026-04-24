@@ -12,6 +12,7 @@ Each workflow defines:
 - **Steps** — ordered list of action names from `AUTONOMY.md`
 - **Level** — autonomy level of the highest-tiered step included
 - **Rollback** — what happens on failure
+- **Job Record Gate** — every autonomous run emits one job JSON file validated against `projects/jrt/metadata/schema/media_job.schema.json`
 
 ---
 
@@ -119,12 +120,19 @@ steps:
          - projects/jrt/metadata/schema/track.schema.json
          - projects/jrt/metadata/schema/provenance.schema.json
          - projects/jrt/metadata/schema/ingest-summary.schema.json
+         - projects/jrt/metadata/schema/media_job.schema.json
        - If any schema is missing, block ingest to prevent orphan assets
-  3. catalog_music        # Extract and store track metadata
+  3. generate_metadata    # Emit per-run job metadata (hard gate)
      owner: MediaAgent
-  4. tag_audio            # Apply ID3 tags if missing
+     notes:
+       - Emit exactly one JSON file under projects/jrt/metadata/jobs/ per autonomous run
+       - Validate emitted file against projects/jrt/metadata/schema/media_job.schema.json
+       - Block workflow progression if validation fails or file is missing
+  4. catalog_music        # Extract and store track metadata
      owner: MediaAgent
-  5. generate_metadata    # Finalize and persist ingest artifacts
+  5. tag_audio            # Apply ID3 tags if missing
+     owner: MediaAgent
+  6. generate_metadata    # Finalize and persist ingest artifacts
      owner: IPAgent
      notes:
        - Build rollout package for downstream distribution
@@ -133,15 +141,17 @@ steps:
          - update track manifest
          - update provenance/log
          - append ingest summary entry
-  6. create_issue         # "New tracks added: [list]"
+         - include the emitted media job file path from projects/jrt/metadata/jobs/
+  7. create_issue         # "New tracks added: [list]"
      owner: MediaAgent
-  7. write_agent_log      # Record catalog update and artifact paths
+  8. write_agent_log      # Record catalog update and artifact paths + job record path
      owner: MediaAgent
 
 rollback:
   - If unsupported file type is detected in projects/jrt/audio/: skip ingest for that file, create issue, and log rollback action with path + MIME type
   - If expected metadata file is missing under projects/jrt/metadata/: stop ingest batch, create issue, and mark run as blocked (no partial ingest)
   - If planned schema files are missing: fail fast before catalog step and record "orphan-asset prevention gate tripped"
+  - If the per-run media job JSON is missing or fails schema validation: fail fast before catalog step and record "media-job gate tripped"
 ```
 
 ---
