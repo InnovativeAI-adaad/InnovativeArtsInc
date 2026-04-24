@@ -111,7 +111,7 @@ def test_creative_planner_rewards_selection_and_promotion() -> None:
 
     lifecycle = planner.promote_winner_and_archive_losers(
         experiment_id="exp-plan-1",
-        minimum_sample_size=4,
+        minimum_sample_size=2,
         promotion_threshold=0.5,
     )
     assert lifecycle.promoted_strategy_id == plan_a.strategy_id
@@ -155,7 +155,7 @@ def test_experiment_runner_winner_promotion() -> None:
     runner = ExperimentRunner(
         experiment_id="exp-1",
         primary_metric="ctr",
-        minimum_sample_size=4,
+        minimum_sample_size=2,
         promotion_threshold=0.2,
         variants=(
             ExperimentVariant(variant_id="A", allocation_weight=0.5),
@@ -175,6 +175,61 @@ def test_experiment_runner_winner_promotion() -> None:
     decision = runner.promotion_decision()
     assert decision["status"] == "promote"
     assert decision["winner_variant_id"] == "A"
+
+
+def test_experiment_runner_holds_when_winner_variant_has_insufficient_samples() -> None:
+    runner = ExperimentRunner(
+        experiment_id="exp-2",
+        primary_metric="ctr",
+        minimum_sample_size=4,
+        promotion_threshold=0.2,
+        variants=(
+            ExperimentVariant(variant_id="A", allocation_weight=0.5),
+            ExperimentVariant(variant_id="B", allocation_weight=0.5),
+        ),
+    )
+
+    runner.ingest_metrics(
+        [
+            MetricEvent(variant_id="A", metric_name="ctr", value=0.21),
+            MetricEvent(variant_id="A", metric_name="ctr", value=0.20),
+            MetricEvent(variant_id="A", metric_name="ctr", value=0.19),
+            MetricEvent(variant_id="A", metric_name="ctr", value=0.22),
+            MetricEvent(variant_id="B", metric_name="ctr", value=0.90),
+        ]
+    )
+
+    decision = runner.promotion_decision()
+    assert decision["status"] == "hold"
+    assert decision["winner_variant_id"] is None
+    assert decision["reason"] == "insufficient_per_variant_sample"
+
+
+def test_experiment_runner_promotes_when_all_variants_meet_sample_threshold() -> None:
+    runner = ExperimentRunner(
+        experiment_id="exp-3",
+        primary_metric="ctr",
+        minimum_sample_size=2,
+        promotion_threshold=0.2,
+        variants=(
+            ExperimentVariant(variant_id="A", allocation_weight=0.5),
+            ExperimentVariant(variant_id="B", allocation_weight=0.5),
+        ),
+    )
+
+    runner.ingest_metrics(
+        [
+            MetricEvent(variant_id="A", metric_name="ctr", value=0.25),
+            MetricEvent(variant_id="A", metric_name="ctr", value=0.22),
+            MetricEvent(variant_id="B", metric_name="ctr", value=0.20),
+            MetricEvent(variant_id="B", metric_name="ctr", value=0.21),
+        ]
+    )
+
+    decision = runner.promotion_decision()
+    assert decision["status"] == "promote"
+    assert decision["winner_variant_id"] == "A"
+    assert decision["reason"] == "threshold_passed"
 
 
 def test_crm_connector_consent_updates() -> None:

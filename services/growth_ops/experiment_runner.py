@@ -68,12 +68,21 @@ class ExperimentRunner:
             for variant_id in sums
         }
 
+    def _primary_metric_counts(self) -> dict[str, int]:
+        counts: dict[str, int] = {variant.variant_id: 0 for variant in self.variants}
+        for event in self.event_log:
+            if event.metric_name == self.primary_metric:
+                counts[event.variant_id] += 1
+        return counts
+
     def choose_winner(self) -> str | None:
         scores = self.summarize_metric()
-        sample_size = sum(
-            1 for event in self.event_log if event.metric_name == self.primary_metric
-        )
+        per_variant_counts = self._primary_metric_counts()
+        sample_size = sum(per_variant_counts.values())
         if sample_size < self.minimum_sample_size:
+            return None
+
+        if any(count < self.minimum_sample_size for count in per_variant_counts.values()):
             return None
 
         winner_id, winner_score = max(scores.items(), key=lambda item: item[1])
@@ -84,11 +93,19 @@ class ExperimentRunner:
     def promotion_decision(self) -> dict[str, str | float | None]:
         winner = self.choose_winner()
         if winner is None:
+            per_variant_counts = self._primary_metric_counts()
+            sample_size = sum(per_variant_counts.values())
+            if sample_size < self.minimum_sample_size:
+                reason = "insufficient_signal"
+            elif any(count < self.minimum_sample_size for count in per_variant_counts.values()):
+                reason = "insufficient_per_variant_sample"
+            else:
+                reason = "insufficient_signal"
             return {
                 "experiment_id": self.experiment_id,
                 "status": "hold",
                 "winner_variant_id": None,
-                "reason": "insufficient_signal",
+                "reason": reason,
             }
         return {
             "experiment_id": self.experiment_id,
