@@ -1,0 +1,13 @@
+.git
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.env
+.env.*
+!.env.example
+registry/*.jsonl
+registry/*.db
+registry/dashboard_snapshot.json
+projects/jrt/metadata/jobs/*.json
+projects/jrt/metadata/jobs/checkpoints

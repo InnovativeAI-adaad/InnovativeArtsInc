@@ -40,12 +40,26 @@ InnovativeArtsInc is an AI-assisted music and creative operations repository for
 ```bash
 git clone https://github.com/InnovativeAI-adaad/InnovativeArtsInc.git
 cd InnovativeArtsInc
+python -m venv .venv
+source .venv/bin/activate
+python -m pip install --upgrade pip
+python -m pip install -e .[dev]
+cp .env.example .env
 ```
+
+The package exposes these console scripts:
+
+- `autonomous-media` — governed media conductor CLI
+- `iai-validate-action-registry` — workflow/action registry preflight
+- `iai-validate-agent-log-chain` — `AGENT_LOG.md` HMAC chain validator
+- `iai-validate-media-outputs` — media output and rollout gate validator
 
 ### Minimal quickstart (runs now)
 
 ```bash
 ./init_engine.sh
+autonomous-media dry-run --job-id dry-run-001 --track-id track-demo
+iai-validate-action-registry
 ```
 
 #### Verify initialization
@@ -77,10 +91,51 @@ If any command exits non-zero, rerun:
 
 Expected result: scaffold directories are ensured and registry baseline artifacts are created/preserved under `registry/`.
 
-### Current non-goals
+### Dry-run command
 
-- No packaged installer yet (`pip`, `npm`, or container image).
-- No single-command full production run orchestrator documented in this README yet.
+Use dry-run mode before a production run. It validates repository/schema presence and prints the resolved payload without writing job artifacts.
+
+```bash
+autonomous-media dry-run \
+  --job-id dry-run-001 \
+  --track-id track-demo \
+  --input-assets '[{"asset_id":"prompt-package","path":"projects/jrt/metadata/track-demo/prompt.json"}]' \
+  --output-assets '[{"asset_id":"rollout-package","path":"projects/jrt/metadata/track-demo/rollout.json"}]' \
+  --provenance-refs '[{"ref_type":"registry","ref_id":"dry-run-001","uri":"registry/provenance_log.jsonl"}]'
+```
+
+### Production-run command
+
+Production runs emit governed job artifacts under `projects/jrt/metadata/jobs/` and resume through durable checkpoints. Configure provider credentials and runtime defaults in the environment (for example by copying `.env.example` to `.env` for local development, then loading it with your shell or orchestrator). Do not commit populated `.env` files or secret values.
+
+```bash
+export AGENT_ENABLED=true
+autonomous-media run \
+  --require-agent-enabled \
+  --job-id prod-job-001 \
+  --track-id track-001 \
+  --input-assets '[{"asset_id":"prompt-package","path":"projects/jrt/metadata/track-001/prompt.json"}]' \
+  --output-assets '[{"asset_id":"rollout-package","path":"projects/jrt/metadata/track-001/rollout.json"}]' \
+  --provenance-refs '[{"ref_type":"registry","ref_id":"prod-job-001","uri":"registry/provenance_log.jsonl"}]'
+```
+
+### Container runtime
+
+Build the deterministic runtime image and run the default dry-run entrypoint:
+
+```bash
+docker build -t innovativeartsinc:runtime .
+docker run --rm innovativeartsinc:runtime
+```
+
+Run the media conductor from the container against a mounted repository workspace:
+
+```bash
+docker run --rm \
+  --env-file .env \
+  -v "$PWD:/app" \
+  innovativeartsinc:runtime run --require-agent-enabled --job-id prod-job-001 --track-id track-001
+```
 
 ## Repository Layout
 
