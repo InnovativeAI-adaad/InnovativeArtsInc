@@ -10,6 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+from services.rights_ledger.registration import validate_split_sheet_ownership
 
 from .generation_scheduler import CandidateGenerationPlan, run_scheduler_hook
 
@@ -370,10 +371,6 @@ def generate_split_sheet(
     if not ownership_metadata:
         raise ValueError("ownership_metadata must not be empty")
 
-    total_points = sum(float(item.get("ownership_percent", 0)) for item in ownership_metadata)
-    if round(total_points, 5) != 100.0:
-        raise ValueError(f"ownership_percent total must equal 100.0, got {total_points}")
-
     split_sheet = {
         "schema_version": "1.0.0",
         "split_sheet_id": f"{release_id}-split-sheet",
@@ -382,9 +379,13 @@ def generate_split_sheet(
         "participants": ownership_metadata,
         "verification": {
             "method": "sha256",
-            "ownership_total_percent": round(total_points, 5),
+            "ownership_total_percent": 0.0,
         },
     }
+    validate_split_sheet_ownership(split_sheet)
+    split_sheet["verification"]["ownership_total_percent"] = round(
+        sum(float(item["ownership_percent"]) for item in ownership_metadata), 5
+    )
 
     signed_ref = sign_artifact_reference(
         artifact_type="split_sheet",
