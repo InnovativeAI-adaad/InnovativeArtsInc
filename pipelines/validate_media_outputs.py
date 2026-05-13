@@ -26,6 +26,8 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
+from services.release_pipeline import validate_release_bundle
+
 
 @dataclass
 class CheckResult:
@@ -53,32 +55,7 @@ class RemediationAttempt:
     timestamp: str
 
 
-RELEASE_BUNDLE_SCHEMA: dict[str, Any] = {
-    "required_top_level": (
-        "schema_version",
-        "release_id",
-        "title",
-        "artist_name",
-        "created_at",
-        "identifiers",
-        "masters",
-        "stems",
-        "credits",
-        "rights_metadata",
-        "artifacts",
-    ),
-    "required_identifiers": ("isrc", "upc"),
-    "required_artifacts": ("bundle_sha256", "split_sheet_refs"),
-    "required_split_sheet_ref": (
-        "artifact_type",
-        "artifact_id",
-        "storage_uri",
-        "sha256",
-        "signature",
-        "signer",
-        "signed_at",
-    ),
-}
+RELEASE_BUNDLE_SCHEMA_PATH = Path("projects/jrt/metadata/schema/release_bundle.schema.json")
 
 
 def _utc_now() -> str:
@@ -250,50 +227,7 @@ def check_lyric_structure(track: dict[str, Any], rules: dict[str, Any], repo_roo
 
 
 def _validate_release_bundle_structure(bundle: dict[str, Any]) -> list[str]:
-    errors: list[str] = []
-    for field in RELEASE_BUNDLE_SCHEMA["required_top_level"]:
-        if field not in bundle:
-            errors.append(f"missing top-level field: {field}")
-
-    identifiers = bundle.get("identifiers")
-    if not isinstance(identifiers, dict):
-        errors.append("identifiers must be an object")
-    else:
-        for key in RELEASE_BUNDLE_SCHEMA["required_identifiers"]:
-            value = identifiers.get(key)
-            if not isinstance(value, str) or not value:
-                errors.append(f"identifiers.{key} must be a non-empty string")
-
-    list_fields = ("masters", "stems", "credits")
-    for field in list_fields:
-        value = bundle.get(field)
-        if not isinstance(value, list) or not value:
-            errors.append(f"{field} must be a non-empty array")
-
-    rights = bundle.get("rights_metadata")
-    if not isinstance(rights, dict) or not rights:
-        errors.append("rights_metadata must be a non-empty object")
-
-    artifacts = bundle.get("artifacts")
-    if not isinstance(artifacts, dict):
-        errors.append("artifacts must be an object")
-    else:
-        for key in RELEASE_BUNDLE_SCHEMA["required_artifacts"]:
-            if key not in artifacts:
-                errors.append(f"artifacts missing required field: {key}")
-        split_sheet_refs = artifacts.get("split_sheet_refs")
-        if not isinstance(split_sheet_refs, list) or not split_sheet_refs:
-            errors.append("artifacts.split_sheet_refs must be a non-empty array")
-        else:
-            for idx, ref in enumerate(split_sheet_refs):
-                if not isinstance(ref, dict):
-                    errors.append(f"split_sheet_refs[{idx}] must be an object")
-                    continue
-                missing = [k for k in RELEASE_BUNDLE_SCHEMA["required_split_sheet_ref"] if not ref.get(k)]
-                if missing:
-                    errors.append(f"split_sheet_refs[{idx}] missing required fields: {missing}")
-
-    return errors
+    return validate_release_bundle(bundle)
 
 
 def check_release_bundle_structure(track: dict[str, Any], rules: dict[str, Any], repo_root: Path) -> CheckResult:

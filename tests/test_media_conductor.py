@@ -67,6 +67,14 @@ class MediaConductorTests(unittest.TestCase):
         emitted = json.loads(jobs[0].read_text(encoding="utf-8"))
         self.assertEqual(emitted["job_id"], "job-123")
         self.assertEqual(emitted["status"], "succeeded")
+        self.assertIn(
+            {
+                "ref_type": "release_bundle",
+                "ref_id": "job-123-bundle",
+                "uri": "projects/jrt/metadata/releases/job-123.release_bundle.json",
+            },
+            emitted["provenance_refs"],
+        )
 
     def test_resume_from_checkpoint_after_crash(self) -> None:
         fail_once = {"armed": True}

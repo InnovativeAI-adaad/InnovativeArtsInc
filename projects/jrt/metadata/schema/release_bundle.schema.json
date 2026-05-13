@@ -1,0 +1,153 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://innovativeartsinc.local/schemas/release_bundle.schema.json",
+  "title": "Distributor Release Bundle",
+  "description": "Distributor-ready release metadata, assets, rights, and provenance contract.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "schema_version",
+    "release_id",
+    "status",
+    "release_title",
+    "artist",
+    "contributors",
+    "isrc",
+    "upc",
+    "label",
+    "copyright",
+    "publishing",
+    "explicit",
+    "language",
+    "genre",
+    "territories",
+    "release_date",
+    "master_audio_refs",
+    "artwork_refs",
+    "lyrics_refs",
+    "split_sheet_refs",
+    "bundle_sha256"
+  ],
+  "properties": {
+    "schema_version": { "type": "string", "const": "1.0.0" },
+    "release_id": { "type": "string", "minLength": 1 },
+    "status": { "type": "string", "enum": ["draft", "ready"] },
+    "release_title": { "type": "string", "minLength": 1 },
+    "artist": { "type": "string", "minLength": 1 },
+    "contributors": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/contributor" }
+    },
+    "isrc": {
+      "type": "string",
+      "pattern": "^([A-Z]{2}[A-Z0-9]{3}[0-9]{7}|ISRC-TBD)$"
+    },
+    "upc": {
+      "type": "string",
+      "pattern": "^([0-9]{12,14}|UPC-TBD)$"
+    },
+    "label": { "type": "string", "minLength": 1 },
+    "copyright": { "$ref": "#/$defs/copyright" },
+    "publishing": { "$ref": "#/$defs/publishing" },
+    "explicit": { "type": "boolean" },
+    "language": { "type": "string", "minLength": 2 },
+    "genre": { "type": "string", "minLength": 1 },
+    "territories": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 2 }
+    },
+    "release_date": { "type": "string", "format": "date" },
+    "master_audio_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/assetRef" }
+    },
+    "artwork_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/assetRef" }
+    },
+    "lyrics_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/assetRef" }
+    },
+    "split_sheet_refs": {
+      "type": "array",
+      "minItems": 1,
+      "items": { "$ref": "#/$defs/signedArtifactRef" }
+    },
+    "bundle_sha256": {
+      "type": "string",
+      "pattern": "^[A-Fa-f0-9]{64}$"
+    }
+  },
+  "$defs": {
+    "contributor": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["name", "role"],
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "role": { "type": "string", "minLength": 1 },
+        "ipi": { "type": "string" },
+        "pro": { "type": "string" }
+      }
+    },
+    "copyright": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["owner", "year", "notice"],
+      "properties": {
+        "owner": { "type": "string", "minLength": 1 },
+        "year": { "type": "integer", "minimum": 1900 },
+        "notice": { "type": "string", "minLength": 1 }
+      }
+    },
+    "publishing": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["publisher", "administrator"],
+      "properties": {
+        "publisher": { "type": "string", "minLength": 1 },
+        "administrator": { "type": "string", "minLength": 1 }
+      }
+    },
+    "assetRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": ["ref_type", "ref_id", "uri"],
+      "properties": {
+        "ref_type": { "type": "string", "minLength": 1 },
+        "ref_id": { "type": "string", "minLength": 1 },
+        "uri": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+        "mime_type": { "type": "string", "minLength": 1 }
+      }
+    },
+    "signedArtifactRef": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "artifact_type",
+        "artifact_id",
+        "storage_uri",
+        "sha256",
+        "signature",
+        "signer",
+        "signed_at"
+      ],
+      "properties": {
+        "artifact_type": { "type": "string", "minLength": 1 },
+        "artifact_id": { "type": "string", "minLength": 1 },
+        "storage_uri": { "type": "string", "minLength": 1 },
+        "sha256": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+        "signature": { "type": "string", "pattern": "^[A-Fa-f0-9]{64}$" },
+        "signer": { "type": "string", "minLength": 1 },
+        "signed_at": { "type": "string", "format": "date-time" }
+      }
+    }
+  }
+}
