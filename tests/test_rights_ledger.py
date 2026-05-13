@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import date, datetime, timezone
+import json
 from decimal import Decimal
 
 from services.rights_ledger import (
@@ -132,3 +133,80 @@ def test_reconciliation_late_adjustments_and_dispute_replays() -> None:
     assert report.open_disputes == ()
     assert report.replayed_entries == (original_adjustment.entry_id, original_adjustment.entry_id)
     assert report.replay_anomalies == (original_adjustment.entry_id,)
+
+
+def test_register_release_rights_emits_append_only_registration_events(tmp_path) -> None:
+    provenance_log = tmp_path / "provenance_log.jsonl"
+    provenance_log.write_text(
+        '{"track_id":"trk-001","track_provenance_id":"track-prov-001"}\n',
+        encoding="utf-8",
+    )
+    output_path = tmp_path / "rights-ledger.jsonl"
+    release_bundle = {
+        "release_id": "rel-001",
+        "title": "Example Release",
+        "artist_name": "JRT",
+        "identifiers": {"isrc": "ISRC-TBD", "upc": "UPC-TBD"},
+        "masters": [{"track_id": "trk-001", "path": "masters/trk-001.wav"}],
+    }
+    split_sheet = {
+        "split_sheet_id": "rel-001-split-sheet",
+        "release_id": "rel-001",
+        "participants": [
+            {"party": "Artist A", "ownership_percent": 60, "publishing_percent": 50},
+            {"party": "Producer B", "ownership_percent": 40, "publishing_percent": 50},
+        ],
+    }
+
+    from services.rights_ledger import RightsEventType, register_release_rights
+
+    ledger, path = register_release_rights(
+        release_bundle=release_bundle,
+        split_sheet=split_sheet,
+        output_path=output_path,
+        provenance_log_path=provenance_log,
+        job_provenance_id="job-prov-registration",
+    )
+
+    assert path == output_path
+    assert ledger.verify_chain()
+    assert [entry.event_type for entry in ledger.entries] == [
+        RightsEventType.WORK_CREATED,
+        RightsEventType.MASTER_REGISTERED,
+        RightsEventType.PROVENANCE_BOUND,
+        RightsEventType.CONTRIBUTOR_SPLIT_REGISTERED,
+        RightsEventType.PUBLISHING_SPLIT_REGISTERED,
+        RightsEventType.CONTRIBUTOR_SPLIT_REGISTERED,
+        RightsEventType.PUBLISHING_SPLIT_REGISTERED,
+    ]
+    jsonl_entries = [json.loads(line) for line in output_path.read_text(encoding="utf-8").splitlines()]
+    assert jsonl_entries[0]["event_type"] == "work_created"
+    assert jsonl_entries[1]["track_provenance_id"] == "track-prov-001"
+    assert jsonl_entries[1]["prev_entry_id"] == jsonl_entries[0]["entry_id"]
+
+
+def test_register_release_rights_blocks_invalid_ownership(tmp_path) -> None:
+    provenance_log = tmp_path / "provenance_log.jsonl"
+    provenance_log.write_text(
+        '{"track_id":"trk-001","track_provenance_id":"track-prov-001"}\n',
+        encoding="utf-8",
+    )
+    release_bundle = {"release_id": "rel-001", "masters": [{"track_id": "trk-001"}]}
+    split_sheet = {
+        "split_sheet_id": "rel-001-split-sheet",
+        "release_id": "rel-001",
+        "participants": [{"party": "Artist A"}],
+    }
+
+    from services.rights_ledger import register_release_rights
+
+    try:
+        register_release_rights(
+            release_bundle=release_bundle,
+            split_sheet=split_sheet,
+            output_path=tmp_path / "rights-ledger.jsonl",
+            provenance_log_path=provenance_log,
+        )
+        assert False, "expected invalid ownership to block release readiness"
+    except ValueError as exc:
+        assert "ownership_percent" in str(exc)

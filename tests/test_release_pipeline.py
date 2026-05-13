@@ -45,6 +45,15 @@ class ReleasePipelineServiceTests(unittest.TestCase):
         self.assertEqual(len(signed_ref["sha256"]), 64)
         self.assertEqual(len(signed_ref["signature"]), 64)
 
+    def test_generate_split_sheet_rejects_missing_ownership_percent(self) -> None:
+        with self.assertRaisesRegex(ValueError, "ownership_percent"):
+            generate_split_sheet(
+                release_id="rel-invalid",
+                ownership_metadata=[{"party": "Artist A"}],
+                signer="rights-bot",
+                storage_uri="registry://release/split-sheet-rel-invalid.json",
+            )
+
     def test_stub_provider_adapters(self) -> None:
         dsp_adapter = StubDSPSubmissionAdapter()
         pro_adapter = StubPRORegistrationAdapter()
