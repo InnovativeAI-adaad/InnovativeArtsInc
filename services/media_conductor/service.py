@@ -13,6 +13,7 @@ from pipelines.media_state_machine import (
     initialize_media_job_record,
     transition_media_job,
 )
+from services.media_conductor.governance import MediaGovernanceError, authorize_media_stage
 
 StageHandler = Callable[[dict[str, Any]], dict[str, Any] | None]
 
@@ -75,10 +76,14 @@ class MediaConductor:
         paths: MediaConductorPaths,
         actor: str,
         handlers: dict[str, StageHandler] | None = None,
+        authorization: dict[str, Any] | None = None,
+        ratification: dict[str, Any] | None = None,
     ) -> None:
         self.paths = paths
         self.actor = actor
         self.handlers = handlers or {}
+        self.authorization = authorization
+        self.ratification = ratification
         self.paths.jobs_dir.mkdir(parents=True, exist_ok=True)
         self.paths.checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
@@ -108,6 +113,9 @@ class MediaConductor:
 
         handler_runtime_payloads: dict[str, dict[str, Any] | None] = checkpoint.setdefault(
             "runtime_payloads", {}
+        )
+        governance_decision_refs: list[dict[str, str]] = checkpoint.setdefault(
+            "governance_decision_refs", []
         )
 
         # Always satisfy linear machine pre-anchors first.
@@ -140,6 +148,34 @@ class MediaConductor:
 
             runtime_payload = pre_anchor_payloads.get(to_stage)
 
+            try:
+                governance_decision = authorize_media_stage(
+                    repo_root=self.paths.repo_root,
+                    job_id=job_id,
+                    stage=to_stage,
+                    actor=self.actor,
+                    authorization=self.authorization,
+                    ratification=self.ratification,
+                    metadata={
+                        "track_id": track_id,
+                        "from_stage": current_stage,
+                        "attempt": attempt,
+                    },
+                )
+            except MediaGovernanceError:
+                checkpoint["updated_at"] = _utc_now_iso()
+                self._write_checkpoint(job_id, checkpoint)
+                raise
+
+            governance_ref = governance_decision.as_provenance_ref(self.paths.repo_root)
+            if governance_ref not in governance_decision_refs:
+                governance_decision_refs.append(governance_ref)
+
+            if runtime_payload is None:
+                runtime_payload = {}
+            runtime_payload.setdefault("governance_decision_ref", governance_ref["ref_id"])
+            runtime_payload.setdefault("governance_decision_uri", governance_ref["uri"])
+
             for handler_stage, handler_name in STAGE_HANDLERS_IN_ORDER:
                 if handler_stage == to_stage:
                     handler_result = self._invoke_handler(handler_name, checkpoint)
@@ -167,7 +203,7 @@ class MediaConductor:
             "status": "succeeded",
             "attempt": attempt,
             "created_at": checkpoint["created_at"],
-            "provenance_refs": provenance_refs,
+            "provenance_refs": [*provenance_refs, *governance_decision_refs],
         }
 
         self._validate_media_job_file(media_job)
@@ -260,12 +296,16 @@ def run_media_conductor(
     agent_owner: str = "MediaAgent",
     attempt: int = 1,
     handlers: dict[str, StageHandler] | None = None,
+    authorization: dict[str, Any] | None = None,
+    ratification: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Convenience wrapper to execute one media conductor run."""
     conductor = MediaConductor(
         paths=MediaConductorPaths.from_repo_root(repo_root),
         actor=actor,
         handlers=handlers,
+        authorization=authorization,
+        ratification=ratification,
     )
     return conductor.run(
         job_id=job_id,
