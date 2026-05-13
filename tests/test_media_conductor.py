@@ -241,5 +241,59 @@ class MediaConductorTests(unittest.TestCase):
         )
 
 
+class MediaConductorGovernanceTests(unittest.TestCase):
+    def setUp(self) -> None:
+        repo_root = Path(__file__).resolve().parents[1]
+        schema_path = repo_root / "projects/jrt/metadata/schema/media_job.schema.json"
+
+        self.temp_dir = tempfile.TemporaryDirectory()
+        root = Path(self.temp_dir.name)
+        self.jobs_dir = root / "projects/jrt/metadata/jobs"
+        self.jobs_dir.mkdir(parents=True, exist_ok=True)
+        self.paths = MediaConductorPaths(
+            repo_root=root,
+            jobs_dir=self.jobs_dir,
+            schema_path=schema_path,
+            checkpoints_dir=self.jobs_dir / "checkpoints",
+        )
+        self.paths.checkpoints_dir.mkdir(parents=True, exist_ok=True)
+
+    def tearDown(self) -> None:
+        self.temp_dir.cleanup()
+
+    def test_governance_decisions_are_emitted_and_added_to_provenance(self) -> None:
+        conductor = MediaConductor(paths=self.paths, actor="media-pipeline")
+
+        checkpoint = conductor.run(
+            job_id="job-governance",
+            track_id="track-abc",
+            input_assets=MediaConductorTests._input_assets(),
+            output_assets=MediaConductorTests._output_assets(),
+            provenance_refs=MediaConductorTests._provenance_refs(),
+            agent_owner="MediaAgent",
+        )
+
+        refs = checkpoint["governance_decision_refs"]
+        self.assertEqual(len(refs), len(MEDIA_STAGES) - 1)
+        self.assertTrue(all(ref["ref_type"] == "governance_decision" for ref in refs))
+
+        decision_files = list(
+            (self.paths.repo_root / "projects/jrt/metadata/governance_decisions").glob(
+                "govdec-*.json"
+            )
+        )
+        self.assertEqual(len(decision_files), len(MEDIA_STAGES) - 1)
+        first = json.loads(decision_files[0].read_text(encoding="utf-8"))
+        self.assertEqual(first["decision"], "allowed")
+        self.assertIn("artifact_sha256", first)
+
+        jobs = list(self.jobs_dir.glob("*.json"))
+        emitted = json.loads(jobs[0].read_text(encoding="utf-8"))
+        emitted_governance_refs = [
+            ref for ref in emitted["provenance_refs"] if ref["ref_type"] == "governance_decision"
+        ]
+        self.assertEqual(len(emitted_governance_refs), len(MEDIA_STAGES) - 1)
+
+
 if __name__ == "__main__":
     unittest.main()
