@@ -12,6 +12,7 @@ from services.growth_ops.crm_connectors import (
 )
 from services.growth_ops.experiment_runner import ExperimentRunner, ExperimentVariant, MetricEvent
 from services.growth_ops.governance import CompliancePolicy, GovernanceGuardrails, OutreachAction
+from services.growth_ops.campaign_planner import build_campaign_plan
 
 
 __all__ = [
@@ -31,4 +32,5 @@ __all__ = [
     "CompliancePolicy",
     "GovernanceGuardrails",
     "OutreachAction",
+    "build_campaign_plan",
 ]
