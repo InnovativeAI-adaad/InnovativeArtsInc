@@ -20,8 +20,11 @@ from .generation_scheduler import (
     select_generation_plan,
 )
 from .service import (
+    assert_release_bundle_ready,
     build_release_bundle,
     generate_split_sheet,
+    validate_release_bundle,
+    write_release_bundle,
     schedule_generation_job,
     sign_artifact_reference,
 )
@@ -42,8 +45,11 @@ __all__ = [
     "score_candidate_plan",
     "select_fallback_provider_model",
     "select_generation_plan",
+    "assert_release_bundle_ready",
     "build_release_bundle",
     "generate_split_sheet",
+    "validate_release_bundle",
+    "write_release_bundle",
     "schedule_generation_job",
     "sign_artifact_reference",
 ]

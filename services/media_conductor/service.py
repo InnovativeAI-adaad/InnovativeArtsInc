@@ -99,6 +99,31 @@ def _basic_timestamp(dt: datetime | None = None) -> str:
     return value.strftime("%Y%m%dT%H%M%SZ")
 
 
+def _release_bundle_provenance_ref(job_id: str) -> dict[str, str]:
+    return {
+        "ref_type": "release_bundle",
+        "ref_id": f"{job_id}-bundle",
+        "uri": f"projects/jrt/metadata/releases/{job_id}.release_bundle.json",
+    }
+
+
+def _with_release_bundle_provenance_refs(
+    provenance_refs: list[dict[str, Any]],
+    *,
+    job_id: str,
+) -> list[dict[str, Any]]:
+    refs = list(provenance_refs)
+    release_ref = _release_bundle_provenance_ref(job_id)
+    if not any(
+        ref.get("ref_type") == release_ref["ref_type"]
+        and (ref.get("ref_id") == release_ref["ref_id"] or ref.get("uri") == release_ref["uri"])
+        for ref in refs
+        if isinstance(ref, dict)
+    ):
+        refs.append(release_ref)
+    return refs
+
+
 class MediaConductor:
     """Orchestrates media job stage transitions with durable checkpoints and resume."""
 
@@ -200,6 +225,8 @@ class MediaConductor:
             checkpoint["updated_at"] = _utc_now_iso()
             self._write_checkpoint(job_id, checkpoint)
 
+        media_job_provenance_refs = _with_release_bundle_provenance_refs(provenance_refs, job_id=job_id)
+
         media_job = {
             "job_id": job_id,
             "track_id": track_id,
@@ -210,7 +237,7 @@ class MediaConductor:
             "status": "succeeded",
             "attempt": attempt,
             "created_at": checkpoint["created_at"],
-            "provenance_refs": provenance_refs,
+            "provenance_refs": media_job_provenance_refs,
         }
 
         self._validate_media_job_file(media_job)
