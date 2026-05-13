@@ -15,6 +15,7 @@ __all__ = [
     "MediaGenerationAdapter",
     "ProviderGenerationResult",
     "ReplayContract",
+    "ReplicateAudioAdapter",
     "StubGenAudioAdapter",
     "run_autonomous_generation_lifecycle",
     "IPGuardrailBlockedError",

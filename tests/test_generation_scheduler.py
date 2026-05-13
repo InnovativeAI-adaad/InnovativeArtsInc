@@ -5,6 +5,7 @@ import json
 from services.release_pipeline.generation_scheduler import (
     CandidateGenerationPlan,
     append_scheduler_dashboard_metrics,
+    media_generation_adapter_config_from_decision,
     run_scheduler_hook,
     select_fallback_provider_model,
     select_generation_plan,
@@ -28,6 +29,7 @@ def _candidate_plans() -> list[CandidateGenerationPlan]:
             quality_likelihood=0.89,
             estimated_cost_usd=0.9,
             expected_latency_ms=950,
+            model_version="2026-01",
         ),
         CandidateGenerationPlan(
             plan_id="plan-alt-provider",
@@ -49,6 +51,7 @@ def test_select_generation_plan_scores_and_ranks_candidates() -> None:
     )
 
     assert decision["selected_plan_id"] == "plan-balanced"
+    assert decision["selected_model_version"] == "2026-01"
     assert decision["ranking"][0]["score"] >= decision["ranking"][1]["score"]
     assert decision["provider_model_preset"]["primary"]["provider"]
 
@@ -157,3 +160,31 @@ def test_select_fallback_provider_model_returns_none_for_only_malformed_targets(
     )
 
     assert fallback is None
+
+
+def test_media_generation_adapter_config_from_decision_includes_model_version() -> None:
+    decision = select_generation_plan(
+        job_id="job-104",
+        candidate_plans=[
+            CandidateGenerationPlan(
+                plan_id="suno-high-quality",
+                provider="suno",
+                model="chirp-v4",
+                model_version="v4",
+                quality_likelihood=0.94,
+                estimated_cost_usd=1.2,
+                expected_latency_ms=1200,
+            )
+        ],
+        campaign_budget_tier="high",
+        release_urgency="normal",
+    )
+
+    config = media_generation_adapter_config_from_decision(decision, dry_run=True)
+
+    assert config == {
+        "provider_name": "suno",
+        "model": "chirp-v4",
+        "model_version": "v4",
+        "dry_run": True,
+    }
