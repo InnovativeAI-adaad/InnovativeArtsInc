@@ -1,12 +1,16 @@
 from __future__ import annotations
 
+import tempfile
 import unittest
+from pathlib import Path
 
 from services.release_pipeline import (
     StubDSPSubmissionAdapter,
     StubPRORegistrationAdapter,
+    assert_release_bundle_ready,
     build_release_bundle,
     generate_split_sheet,
+    validate_release_bundle,
 )
 
 
@@ -24,10 +28,36 @@ class ReleasePipelineServiceTests(unittest.TestCase):
 
         self.assertEqual(bundle["identifiers"]["isrc"], "ISRC-TBD")
         self.assertEqual(bundle["identifiers"]["upc"], "UPC-TBD")
+        self.assertEqual(bundle["status"], "ready")
+        self.assertEqual(bundle["release_title"], "Example Release")
+        self.assertEqual(bundle["artist"], "JRT")
+        self.assertTrue(bundle["master_audio_refs"])
+        self.assertTrue(bundle["artwork_refs"])
+        self.assertTrue(bundle["lyrics_refs"])
+        self.assertTrue(bundle["split_sheet_refs"])
+        self.assertFalse(validate_release_bundle(bundle))
+        assert_release_bundle_ready(bundle)
         self.assertIn("masters", bundle)
         self.assertIn("stems", bundle)
         self.assertIn("credits", bundle)
         self.assertIn("rights_metadata", bundle)
+
+    def test_build_release_bundle_persists_to_stable_releases_directory(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            bundle = build_release_bundle(
+                release_id="rel-004",
+                title="Stored Release",
+                artist_name="JRT",
+                masters=[{"track_id": "trk-004", "path": "masters/trk-004.wav"}],
+                stems=[{"track_id": "trk-004", "path": "stems/trk-004-drums.wav"}],
+                credits=[{"name": "Artist A", "role": "writer"}],
+                rights_metadata={"copyright_owner": "InnovativeArtsInc"},
+                repo_root=tmp,
+            )
+
+            release_path = Path(tmp) / "projects/jrt/metadata/releases/rel-004.release_bundle.json"
+            self.assertTrue(release_path.exists())
+            self.assertEqual(bundle["release_id"], "rel-004")
 
     def test_generate_split_sheet_returns_signed_reference(self) -> None:
         split_sheet, signed_ref = generate_split_sheet(
@@ -44,6 +74,15 @@ class ReleasePipelineServiceTests(unittest.TestCase):
         self.assertEqual(signed_ref["artifact_type"], "split_sheet")
         self.assertEqual(len(signed_ref["sha256"]), 64)
         self.assertEqual(len(signed_ref["signature"]), 64)
+
+    def test_generate_split_sheet_rejects_missing_ownership_percent(self) -> None:
+        with self.assertRaisesRegex(ValueError, "ownership_percent"):
+            generate_split_sheet(
+                release_id="rel-invalid",
+                ownership_metadata=[{"party": "Artist A"}],
+                signer="rights-bot",
+                storage_uri="registry://release/split-sheet-rel-invalid.json",
+            )
 
     def test_stub_provider_adapters(self) -> None:
         dsp_adapter = StubDSPSubmissionAdapter()

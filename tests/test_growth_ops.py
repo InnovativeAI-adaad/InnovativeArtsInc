@@ -1,3 +1,5 @@
+import json
+
 import pytest
 
 from services.creative_planner import (
@@ -8,6 +10,7 @@ from services.creative_planner import (
     PriorOutcome,
 )
 from services.growth_ops.attribution import AttributionLayer, CampaignEvent, MonetizationLedgerEntry
+from services.growth_ops.campaign_planner import build_campaign_plan
 from services.growth_ops.clip_contract import (
     CampaignMetadata,
     ClipAsset,
@@ -348,3 +351,48 @@ def test_governance_guardrails_require_human_for_high_risk() -> None:
 
     assert blocked["status"] == "blocked"
     assert approved["status"] == "approved"
+
+
+def test_build_campaign_plan_persists_release_growth_artifacts(tmp_path) -> None:
+    release_bundle = {
+        "release_id": "rel-growth-1",
+        "title": "Night Signal",
+        "artist_name": "JRT",
+        "masters": [
+            {
+                "asset_id": "master-1",
+                "asset_type": "audio_master",
+                "path": "masters/night-signal.wav",
+                "duration_seconds": 141,
+            }
+        ],
+        "stems": [],
+        "artifacts": {"bundle_sha256": "abc123", "split_sheet_refs": []},
+    }
+
+    plan = build_campaign_plan(
+        release_bundle=release_bundle,
+        target_audience="late night electronic listeners",
+        channel_list=["tiktok", "instagram_reels"],
+        budget_tier="growth",
+        campaign_objective="drive saves",
+        repo_root=tmp_path,
+    )
+
+    campaign_path = tmp_path / "projects/jrt/metadata/campaigns/rel-growth-1.json"
+    assert campaign_path.exists()
+
+    persisted = json.loads(campaign_path.read_text(encoding="utf-8"))
+    assert persisted["release_id"] == "rel-growth-1"
+    assert persisted["artifacts"]["short_clips"][0]["campaign"]["release_id"] == "rel-growth-1"
+    assert persisted["artifacts"]["captions"]
+    assert persisted["artifacts"]["hashtags"]
+    assert persisted["artifacts"]["utm_conventions"]["campaign"] == plan["campaign_id"]
+    assert persisted["artifacts"]["creator_outreach"]["governance"]["requires_human_approval"] is True
+    assert persisted["artifacts"]["ab_experiment_plans"][0]["initial_decision"]["status"] == "hold"
+    assert persisted["artifacts"]["attribution_seed"]["event_count"] == 2
+
+    campaign_ref = release_bundle["artifacts"]["campaign_plan_refs"][0]
+    assert campaign_ref["artifact_type"] == "campaign_plan"
+    assert campaign_ref["sha256"] == persisted["artifact_ref"]["sha256"]
+    assert release_bundle["provenance_refs"][0]["ref_type"] == "campaign_plan"

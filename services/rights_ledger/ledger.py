@@ -31,6 +31,21 @@ class LedgerEntry:
     prev_entry_id: str | None
 
 
+def serialize_ledger_entry(entry: LedgerEntry) -> dict[str, Any]:
+    """Return the JSON-compatible append-only representation of a ledger entry."""
+    return {
+        "entry_id": entry.entry_id,
+        "ledger_id": entry.ledger_id,
+        "sequence": entry.sequence,
+        "event_type": entry.event_type.value,
+        "occurred_at": entry.occurred_at.isoformat(),
+        "track_provenance_id": entry.track_provenance_id,
+        "job_provenance_id": entry.job_provenance_id,
+        "payload": dict(entry.payload),
+        "prev_entry_id": entry.prev_entry_id,
+    }
+
+
 class RightsLedger:
     def __init__(self, ledger_id: str) -> None:
         self.ledger_id = ledger_id
