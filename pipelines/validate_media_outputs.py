@@ -26,6 +26,12 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, cast
 
+_REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
+from pipelines.write_media_run_summary import write_media_run_summary
+
 
 @dataclass
 class CheckResult:
@@ -882,6 +888,7 @@ def main() -> int:
     record["provenance_refs"].append(_provenance_ref("schema", "media_job.schema.json", str(schema_path)))
 
     try:
+        write_media_run_summary(record)
         write_job_record(job_record_path, record, schema)
     except ValueError as exc:
         print(f"ERROR: generated job artifact failed schema validation: {exc}", file=sys.stderr)
