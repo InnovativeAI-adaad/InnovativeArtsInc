@@ -9,6 +9,8 @@ from pathlib import Path
 from typing import Any
 
 from .adapters import MediaGenerationAdapter, StubGenAudioAdapter
+from .audio_analysis import write_analysis_artifact
+from .adapters import MediaGenerationAdapter, StubGenAudioAdapter, build_media_generation_adapter_from_scheduler
 
 
 @dataclass(frozen=True)
@@ -65,6 +67,8 @@ def generate_music_for_wf005(
     key: str | None = None,
     uniqueness_report_ref: str,
     provider: MediaGenerationAdapter | None = None,
+    scheduler_decision: dict[str, Any] | None = None,
+    dry_run: bool | None = None,
     project_root: str | Path = ".",
 ) -> dict[str, Any]:
     """Callable WF-005 entrypoint that enforces replay and provenance conventions."""
@@ -90,7 +94,11 @@ def generate_music_for_wf005(
         response["replayed"] = True
         return response
 
-    active_provider = provider or StubGenAudioAdapter()
+    active_provider = provider or (
+        build_media_generation_adapter_from_scheduler(scheduler_decision, dry_run=dry_run)
+        if scheduler_decision
+        else StubGenAudioAdapter()
+    )
     provider_result = active_provider.generate(
         prompt=prompt,
         style_profile=style_profile,
@@ -102,11 +110,18 @@ def generate_music_for_wf005(
         replay_key=replay_key,
     )
 
+    analysis_artifact = write_analysis_artifact(
+        audio_path=provider_result.audio_path,
+        job_id=replay_key,
+        artifact_dir=root / "projects" / "jrt" / "metadata" / "analysis",
+    )
+
     response = {
         "audio_path": provider_result.audio_path,
         "render_metadata": provider_result.render_metadata,
         "provider_generation_id": provider_result.provider_generation_id,
         "uniqueness_report_ref": uniqueness_report_ref,
+        "analysis_artifact": analysis_artifact["artifact_path"],
         "replay_key": replay_key,
         "replayed": False,
     }
@@ -126,6 +141,13 @@ def generate_music_for_wf005(
         "provider_generation_id": provider_result.provider_generation_id,
         "uniqueness_report_ref": uniqueness_report_ref,
         "render_record": str(render_record_path),
+        "analysis_artifact": analysis_artifact["artifact_path"],
+        "provider_name": provider_result.render_metadata.get("provider_name"),
+        "model": provider_result.render_metadata.get("model"),
+        "model_version": provider_result.render_metadata.get("model_version"),
+        "request_payload_hash": provider_result.render_metadata.get("request_payload_hash"),
+        "generation_timestamp": provider_result.render_metadata.get("generation_timestamp"),
+        "render_metadata": provider_result.render_metadata,
     }
     _append_provenance_if_missing(root / "registry" / "provenance_log.jsonl", provenance_entry)
 

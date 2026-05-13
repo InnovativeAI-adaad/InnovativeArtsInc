@@ -22,6 +22,7 @@ class CandidateGenerationPlan:
     quality_likelihood: float
     estimated_cost_usd: float
     expected_latency_ms: int
+    model_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,12 @@ class ScoredGenerationPlan:
 
 
 def _utc_now_iso() -> str:
-    return dt.datetime.now(dt.timezone.utc).replace(microsecond=0).isoformat().replace("+00:00", "Z")
+    return (
+        dt.datetime.now(dt.timezone.utc)
+        .replace(microsecond=0)
+        .isoformat()
+        .replace("+00:00", "Z")
+    )
 
 
 def score_candidate_plan(
@@ -72,7 +78,9 @@ def score_candidate_plan(
     )
 
 
-def resolve_model_provider_presets(*, campaign_budget_tier: str, release_urgency: str) -> dict[str, Any]:
+def resolve_model_provider_presets(
+    *, campaign_budget_tier: str, release_urgency: str
+) -> dict[str, Any]:
     """Resolve primary/fallback provider-model presets by budget and urgency."""
     budget = campaign_budget_tier.strip().lower()
     urgency = release_urgency.strip().lower()
@@ -128,7 +136,9 @@ def resolve_model_provider_presets(*, campaign_budget_tier: str, release_urgency
         },
     }
 
-    urgency_key = "rush" if urgency in {"rush", "urgent", "asap", "critical"} else "normal"
+    urgency_key = (
+        "rush" if urgency in {"rush", "urgent", "asap", "critical"} else "normal"
+    )
     budget_key = budget if budget in presets else "mid"
     return presets[budget_key][urgency_key]
 
@@ -148,7 +158,9 @@ def select_generation_plan(
     max_latency_ms = max(plan.expected_latency_ms for plan in candidate_plans)
 
     scored = [
-        score_candidate_plan(plan, max_cost_usd=max_cost_usd, max_latency_ms=max_latency_ms)
+        score_candidate_plan(
+            plan, max_cost_usd=max_cost_usd, max_latency_ms=max_latency_ms
+        )
         for plan in candidate_plans
     ]
     ranked = sorted(scored, key=lambda item: item.score, reverse=True)
@@ -165,6 +177,7 @@ def select_generation_plan(
         "selected_plan_id": selected.candidate.plan_id,
         "selected_provider": selected.candidate.provider,
         "selected_model": selected.candidate.model,
+        "selected_model_version": selected.candidate.model_version,
         "selected_score": selected.score,
         "provider_model_preset": preset,
         "ranking": [
@@ -173,6 +186,7 @@ def select_generation_plan(
                 "provider": item.candidate.provider,
                 "model": item.candidate.model,
                 "score": item.score,
+                "model_version": item.candidate.model_version,
                 "quality_component": item.quality_component,
                 "cost_component": item.cost_component,
                 "latency_component": item.latency_component,
@@ -182,6 +196,22 @@ def select_generation_plan(
             for item in ranked
         ],
     }
+
+
+def media_generation_adapter_config_from_decision(
+    scheduler_decision: dict[str, Any],
+    *,
+    dry_run: bool | None = None,
+) -> dict[str, Any]:
+    """Return provider adapter config that media_generation.service can consume."""
+    config = {
+        "provider_name": scheduler_decision.get("selected_provider"),
+        "model": scheduler_decision.get("selected_model"),
+        "model_version": scheduler_decision.get("selected_model_version"),
+    }
+    if dry_run is not None:
+        config["dry_run"] = dry_run
+    return config
 
 
 def persist_scheduler_decision_metadata(
@@ -202,6 +232,7 @@ def persist_scheduler_decision_metadata(
         "selected_plan_id": scheduler_decision["selected_plan_id"],
         "selected_provider": scheduler_decision["selected_provider"],
         "selected_model": scheduler_decision["selected_model"],
+        "selected_model_version": scheduler_decision.get("selected_model_version"),
         "selected_score": scheduler_decision["selected_score"],
         "provider_model_preset": scheduler_decision["provider_model_preset"],
         "ranked_candidates": scheduler_decision["ranking"],
@@ -249,7 +280,11 @@ def select_fallback_provider_model(
         if pair is None:
             continue
         if pair not in attempted:
-            return {"provider": pair[0], "model": pair[1], "source": "ranked_candidates"}
+            return {
+                "provider": pair[0],
+                "model": pair[1],
+                "source": "ranked_candidates",
+            }
 
     preset = scheduler_decision.get("provider_model_preset") or {}
     for fallback in preset.get("fallback") or []:
@@ -260,6 +295,72 @@ def select_fallback_provider_model(
             return {"provider": pair[0], "model": pair[1], "source": "preset_fallback"}
 
     return None
+
+
+def schedule_generation_job(
+    *,
+    job_id: str,
+    prompt_plan: dict[str, Any] | Any,
+    campaign_budget_tier: str,
+    release_urgency: str,
+    runtime_policy: dict[str, Any] | None = None,
+    creative_policy: dict[str, Any] | None = None,
+    job_metadata: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    """Production-facing generation scheduler wrapper for autonomous media jobs.
+
+    Builds provider/model candidates from budget and urgency presets, scores them with
+    the existing release scheduler, and returns a machine-readable strategy payload
+    that callers can persist in media-job metadata.
+    """
+    if not job_id.strip():
+        raise ValueError("job_id must be non-empty")
+
+    preset = resolve_model_provider_presets(
+        campaign_budget_tier=campaign_budget_tier,
+        release_urgency=release_urgency,
+    )
+
+    def _plan_value(name: str, default: str) -> str:
+        if isinstance(prompt_plan, dict):
+            return str(prompt_plan.get(name) or default)
+        return str(getattr(prompt_plan, name, default) or default)
+
+    base_plan_id = _plan_value("plan_id", f"plan-{job_id}")
+    tier = campaign_budget_tier.strip().lower()
+    urgency = release_urgency.strip().lower()
+    quality_base = {"low": 0.74, "mid": 0.84, "high": 0.9}.get(tier, 0.84)
+    rush_latency_factor = (
+        0.65 if urgency in {"rush", "urgent", "asap", "critical"} else 1.0
+    )
+    cost_base = {"low": 0.35, "mid": 0.9, "high": 1.4}.get(tier, 0.9)
+
+    targets = [preset["primary"], *(preset.get("fallback") or [])]
+    candidate_plans = [
+        CandidateGenerationPlan(
+            plan_id=f"{base_plan_id}-{index + 1}",
+            provider=str(target["provider"]),
+            model=str(target["model"]),
+            quality_likelihood=min(0.99, quality_base - (index * 0.03)),
+            estimated_cost_usd=round(cost_base * (1 + index * 0.2), 4),
+            expected_latency_ms=max(
+                100, int((900 + index * 250) * rush_latency_factor)
+            ),
+        )
+        for index, target in enumerate(targets)
+    ]
+
+    decision, metadata = run_scheduler_hook(
+        job_id=job_id,
+        candidate_plans=candidate_plans,
+        campaign_budget_tier=campaign_budget_tier,
+        release_urgency=release_urgency,
+        job_metadata=job_metadata or {},
+    )
+    decision["runtime_policy_loaded"] = bool(runtime_policy)
+    decision["creative_policy_loaded"] = bool(creative_policy)
+    decision["job_metadata"] = metadata
+    return decision
 
 
 def append_scheduler_dashboard_metrics(

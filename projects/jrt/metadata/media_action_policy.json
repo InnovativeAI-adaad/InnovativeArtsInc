@@ -1,0 +1,141 @@
+{
+  "schema_version": "1.0.0",
+  "policy_id": "media-action-policy-v1",
+  "authority": [
+    "AUTONOMY.md",
+    "GOVERNANCE.md"
+  ],
+  "decision_artifact": {
+    "mode": "hash_linked",
+    "directory": "projects/jrt/metadata/governance_decisions",
+    "chain_head": "projects/jrt/metadata/governance_decisions/chain_head.json"
+  },
+  "stages": {
+    "refined_lyrics": {
+      "action_id": "generate_metadata",
+      "operation": "autonomous_media_generation.lyric_refinement",
+      "tier": 2,
+      "required_scope": "generate_metadata",
+      "elevated_action": false,
+      "requires_human_ratification": false,
+      "rationale": "Lyric refinement is a Level 2 media preparation action."
+    },
+    "prompt_packaged": {
+      "action_id": "generate_metadata",
+      "operation": "autonomous_media_generation.prompt_packaging",
+      "tier": 2,
+      "required_scope": "generate_metadata",
+      "elevated_action": false,
+      "requires_human_ratification": false,
+      "rationale": "Prompt and metadata packaging is a Level 2 media-generation support action."
+    },
+    "generation_strategized": {
+      "action_id": "verify_uniqueness_strategy",
+      "operation": "autonomous_media_generation.strategy_planning",
+      "tier": 2,
+      "required_scope": "verify_uniqueness_strategy",
+      "elevated_action": false,
+      "requires_human_ratification": false,
+      "rationale": "Novelty and strategy checks are Level 2 pre-generation guardrails."
+    },
+    "generation_strategy_locked": {
+      "action_id": "verify_uniqueness_strategy",
+      "operation": "autonomous_media_generation.strategy_lock",
+      "tier": 2,
+      "required_scope": "verify_uniqueness_strategy",
+      "elevated_action": false,
+      "requires_human_ratification": false,
+      "rationale": "Locking the provider prompt strategy is a Level 2 auditable guardrail."
+    },
+    "audio_generated": {
+      "action_id": "generate_music",
+      "operation": "autonomous_media_generation.provider_backed_generation",
+      "tier": 2,
+      "required_scope": "generate_music",
+      "elevated_action": true,
+      "requires_human_ratification": false,
+      "rationale": "Provider-backed music generation is elevated for audit but remains Level 2 under AUTONOMY.md."
+    },
+    "audio_verified": {
+      "action_id": "verify_uniqueness_strategy",
+      "operation": "autonomous_media_generation.uniqueness_audit",
+      "tier": 2,
+      "required_scope": "verify_uniqueness_strategy",
+      "elevated_action": false,
+      "requires_human_ratification": false,
+      "rationale": "Uniqueness verification is a Level 2 guardrail before release packaging."
+    },
+    "metadata_finalized": {
+      "action_id": "generate_metadata",
+      "operation": "release_bundling.metadata_finalization",
+      "tier": 2,
+      "required_scope": "generate_metadata",
+      "elevated_action": false,
+      "requires_human_ratification": false,
+      "rationale": "Final metadata generation is Level 2 and must be logged."
+    },
+    "provenance_written": {
+      "action_id": "draft_release",
+      "operation": "release_bundling.provenance_write",
+      "tier": 2,
+      "required_scope": "draft_release",
+      "elevated_action": false,
+      "requires_human_ratification": false,
+      "rationale": "Writing release provenance is a draft release/bundling operation, not public publish."
+    },
+    "rollout_packaged": {
+      "action_id": "draft_release",
+      "operation": "release_bundling.rollout_package",
+      "tier": 2,
+      "required_scope": "draft_release",
+      "elevated_action": false,
+      "requires_human_ratification": false,
+      "rationale": "Rollout package assembly is Level 2 draft-release work; public deployment is separately gated."
+    },
+    "public_release": {
+      "action_id": "publish_release",
+      "operation": "distribution.public_release",
+      "tier": 3,
+      "required_scope": "publish_release",
+      "elevated_action": true,
+      "requires_human_ratification": true,
+      "rationale": "Publishing a public release is Level 3 and requires HUMAN-0 ratification."
+    },
+    "external_posting": {
+      "action_id": "publish_release",
+      "operation": "distribution.external_posting",
+      "tier": 3,
+      "required_scope": "publish_release",
+      "elevated_action": true,
+      "requires_human_ratification": true,
+      "rationale": "External posting is public distribution and is gated as publish_release."
+    },
+    "campaign_planning": {
+      "action_id": "generate_social_drafts",
+      "operation": "campaign_planning.social_drafts",
+      "tier": 2,
+      "required_scope": "generate_social_drafts",
+      "elevated_action": false,
+      "requires_human_ratification": false,
+      "rationale": "Campaign planning may draft copy but never publishes directly."
+    },
+    "payout_rights_operation": {
+      "action_id": "financial_operations",
+      "operation": "payout_rights.financial_operation",
+      "tier": 3,
+      "required_scope": "financial_operations",
+      "elevated_action": true,
+      "requires_human_ratification": true,
+      "rationale": "Payout and rights financial operations are elevated financial actions requiring HUMAN-0 ratification."
+    },
+    "production_deployment": {
+      "action_id": "deploy_production",
+      "operation": "distribution.production_deployment",
+      "tier": 3,
+      "required_scope": "deploy_production",
+      "elevated_action": true,
+      "requires_human_ratification": true,
+      "rationale": "Production deployment is Level 3 under AUTONOMY.md."
+    }
+  }
+}
