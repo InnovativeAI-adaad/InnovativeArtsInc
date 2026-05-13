@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
+import struct
+import wave
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
@@ -76,11 +79,19 @@ class StubGenAudioAdapter:
             "key": key,
         }
         provider_generation_id = f"{self.provider_name}:{_canonical_digest(render_settings)[:16]}"
-        audio_path.write_bytes(
-            f"STUB_AUDIO|provider={self.provider_name}|generation={provider_generation_id}|replay={replay_key}".encode(
-                "utf-8"
-            )
-        )
+        sample_rate_hz = 44_100
+        duration_seconds = max(1, min(int(length), 5))
+        frame_count = sample_rate_hz * duration_seconds
+        amplitude = 0.2
+        with wave.open(str(audio_path), "wb") as wav:
+            wav.setnchannels(2)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate_hz)
+            frames = bytearray()
+            for frame_idx in range(frame_count):
+                sample = int(32767 * amplitude * math.sin(2 * math.pi * 220 * (frame_idx / sample_rate_hz)))
+                frames.extend(struct.pack("<hh", sample, sample))
+            wav.writeframes(bytes(frames))
 
         return ProviderGenerationResult(
             audio_path=str(audio_path),

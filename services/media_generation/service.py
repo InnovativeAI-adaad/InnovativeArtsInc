@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Any
 
 from .adapters import MediaGenerationAdapter, StubGenAudioAdapter
+from .audio_analysis import write_analysis_artifact
 
 
 @dataclass(frozen=True)
@@ -102,11 +103,18 @@ def generate_music_for_wf005(
         replay_key=replay_key,
     )
 
+    analysis_artifact = write_analysis_artifact(
+        audio_path=provider_result.audio_path,
+        job_id=replay_key,
+        artifact_dir=root / "projects" / "jrt" / "metadata" / "analysis",
+    )
+
     response = {
         "audio_path": provider_result.audio_path,
         "render_metadata": provider_result.render_metadata,
         "provider_generation_id": provider_result.provider_generation_id,
         "uniqueness_report_ref": uniqueness_report_ref,
+        "analysis_artifact": analysis_artifact["artifact_path"],
         "replay_key": replay_key,
         "replayed": False,
     }
@@ -126,6 +134,7 @@ def generate_music_for_wf005(
         "provider_generation_id": provider_result.provider_generation_id,
         "uniqueness_report_ref": uniqueness_report_ref,
         "render_record": str(render_record_path),
+        "analysis_artifact": analysis_artifact["artifact_path"],
     }
     _append_provenance_if_missing(root / "registry" / "provenance_log.jsonl", provenance_entry)
 

@@ -7,8 +7,9 @@ Usage:
       --rules projects/jrt/metadata/quality_rules.json \
       --jobs-dir projects/jrt/metadata/jobs
 
-Expected optional per-track metrics for loudness/clipping checks:
-  track["analysis"] or track["quality_metrics"] with keys:
+Expected per-track metrics for loudness/clipping checks are loaded first from
+  projects/jrt/metadata/analysis/<job_id>.json artifacts, then from legacy
+  track["analysis"] or track["quality_metrics"] fields with keys:
     - integrated_lufs (float)
     - true_peak_dbfs (float)
     - clipped_samples (int)
@@ -108,12 +109,104 @@ def _load_json(path: Path) -> dict[str, Any]:
 
 
 def _get_metrics(track: dict[str, Any]) -> dict[str, Any]:
+    artifact_metrics = track.get("analysis_artifact_metrics")
+    if isinstance(artifact_metrics, dict) and artifact_metrics:
+        return artifact_metrics
     return track.get("analysis") or track.get("quality_metrics") or {}
 
 
 def _resolve_path(path_str: str, repo_root: Path) -> Path:
     path = Path(path_str)
     return path if path.is_absolute() else repo_root / path
+
+
+def _analysis_ref_candidates(track: dict[str, Any]) -> list[str]:
+    assets = cast(dict[str, Any], track.get("assets")) if isinstance(track.get("assets"), dict) else {}
+    candidates: list[str] = []
+    for key in ("analysis_artifact", "analysis_ref", "quality_analysis_ref"):
+        value = track.get(key)
+        if isinstance(value, str) and value:
+            candidates.append(value)
+    for key in ("analysis", "quality_analysis", "quality_analysis_ref"):
+        value = assets.get(key)
+        if isinstance(value, str) and value:
+            candidates.append(value)
+    return candidates
+
+
+def _load_analysis_artifact(path: Path) -> dict[str, Any] | None:
+    if not path.exists() or not path.is_file():
+        return None
+    payload = _load_json(path)
+    metrics = payload.get("metrics")
+    if not isinstance(metrics, dict):
+        return None
+    payload["artifact_path"] = str(path)
+    return payload
+
+
+def _normalize_compare_path(path_value: Any, repo_root: Path) -> str | None:
+    if not isinstance(path_value, str) or not path_value:
+        return None
+    return str(_resolve_path(path_value, repo_root).resolve(strict=False))
+
+
+def _artifact_sort_key(artifact: dict[str, Any]) -> tuple[str, str]:
+    analyzed_at = artifact.get("analyzed_at")
+    artifact_path = artifact.get("artifact_path")
+    return (str(analyzed_at or ""), str(artifact_path or ""))
+
+
+def _find_analysis_for_track(track: dict[str, Any], artifacts: list[dict[str, Any]], repo_root: Path) -> dict[str, Any] | None:
+    for candidate in _analysis_ref_candidates(track):
+        artifact = _load_analysis_artifact(_resolve_path(candidate, repo_root))
+        if artifact is not None:
+            return artifact
+
+    track_id = track.get("id")
+    assets = cast(dict[str, Any], track.get("assets")) if isinstance(track.get("assets"), dict) else {}
+    audio_path = _normalize_compare_path(assets.get("audio"), repo_root)
+    matching: list[dict[str, Any]] = []
+    for artifact in artifacts:
+        if track_id and artifact.get("track_id") == track_id:
+            matching.append(artifact)
+            continue
+        artifact_audio_path = _normalize_compare_path(artifact.get("source_audio_path"), repo_root)
+        if audio_path and artifact_audio_path == audio_path:
+            matching.append(artifact)
+
+    return sorted(matching, key=_artifact_sort_key)[-1] if matching else None
+
+
+def attach_analysis_artifacts(manifest: dict[str, Any], analysis_dir: Path, repo_root: Path) -> list[dict[str, str]]:
+    """Attach normalized analysis metrics to manifest tracks from artifact JSON files."""
+
+    artifacts: list[dict[str, Any]] = []
+    if analysis_dir.exists():
+        for path in sorted(analysis_dir.glob("*.json")):
+            artifact = _load_analysis_artifact(path)
+            if artifact is not None:
+                artifacts.append(artifact)
+
+    attached_refs: list[dict[str, str]] = []
+    for track in manifest.get("tracks", []):
+        if not isinstance(track, dict):
+            continue
+        artifact = _find_analysis_for_track(track, artifacts, repo_root)
+        if artifact is None:
+            continue
+        metrics = artifact.get("metrics")
+        if isinstance(metrics, dict):
+            track["analysis_artifact_metrics"] = metrics
+            track["analysis_artifact_ref"] = artifact.get("artifact_path")
+            attached_refs.append(
+                {
+                    "track_id": str(track.get("id", "unknown")),
+                    "job_id": str(artifact.get("job_id", Path(str(artifact.get("artifact_path"))).stem)),
+                    "artifact_path": str(artifact.get("artifact_path")),
+                }
+            )
+    return attached_refs
 
 
 def check_loudness(track: dict[str, Any], rules: dict[str, Any]) -> CheckResult:
@@ -721,6 +814,7 @@ def build_job_record(
     target_stage: str,
     attempt: int,
     agent_owner: str,
+    analysis_refs: list[dict[str, str]] | None = None,
 ) -> dict[str, Any]:
     transition_target = rules.get("transition_gate", {}).get("target_stage", "rollout/platform_assets")
     require_all_pass = bool(rules.get("transition_gate", {}).get("require_all_required_checks_pass", True))
@@ -729,7 +823,25 @@ def build_job_record(
     primary_track_id = str(
         next((track.get("track_id") for track in results["track_results"] if track.get("track_id")), "batch-validation")
     )
-    status = "succeeded" if allowed else "failed"
+    status = "succeeded" if allowed else "blocked"
+    provenance_refs = [
+        _provenance_ref("validation_result", "all_required_checks_passed", str(results["all_required_checks_passed"]).lower()),
+        _provenance_ref("tracks_evaluated", str(len(results["track_results"]))),
+    ]
+    for track_result in results["track_results"]:
+        track_id = str(track_result.get("track_id", "unknown"))
+        status_label = "pass" if track_result.get("all_required_checks_passed") else "fail"
+        provenance_refs.append(_provenance_ref("quality_result", track_id, status_label))
+        for failure in track_result.get("required_failures", []):
+            provenance_refs.append(_provenance_ref("quality_required_failure", track_id, str(failure)))
+    for analysis_ref in analysis_refs or []:
+        provenance_refs.append(
+            _provenance_ref(
+                "audio_analysis",
+                analysis_ref.get("job_id", analysis_ref.get("track_id", "unknown")),
+                analysis_ref.get("artifact_path"),
+            )
+        )
 
     return {
         "job_id": job_id,
@@ -746,10 +858,7 @@ def build_job_record(
         "status": status,
         "attempt": attempt,
         "created_at": _utc_now(),
-        "provenance_refs": [
-            _provenance_ref("validation_result", "all_required_checks_passed", str(results["all_required_checks_passed"]).lower()),
-            _provenance_ref("tracks_evaluated", str(len(results["track_results"]))),
-        ],
+        "provenance_refs": provenance_refs,
         "generation_config": {
             "model_id": "validation-gate/no-generation",
             "prompt_template_version": "n/a",
@@ -795,6 +904,11 @@ def parse_args() -> argparse.Namespace:
         default="projects/jrt/metadata/agent_runtime_config.json",
         help="Path to runtime config containing retry/backoff policy",
     )
+    parser.add_argument(
+        "--analysis-dir",
+        default="projects/jrt/metadata/analysis",
+        help="Directory containing normalized audio analysis artifacts named <job_id>.json",
+    )
     return parser.parse_args()
 
 
@@ -805,6 +919,7 @@ def main() -> int:
     rules_path = Path(args.rules)
     jobs_dir = Path(args.jobs_dir)
     runtime_config_path = Path(args.runtime_config)
+    analysis_dir = Path(args.analysis_dir)
     schema_path = Path("projects/jrt/metadata/schema/media_job.schema.json")
 
     try:
@@ -812,6 +927,7 @@ def main() -> int:
         rules = _load_json(rules_path)
         retry_policy = _load_runtime_retry_policy(runtime_config_path)
         schema = _load_json(schema_path)
+        analysis_refs = attach_analysis_artifacts(manifest, analysis_dir, repo_root)
     except ValueError as exc:
         print(f"ERROR: {exc}", file=sys.stderr)
         return 2
@@ -825,6 +941,7 @@ def main() -> int:
         target_stage=args.target_stage,
         attempt=args.attempt,
         agent_owner=args.agent_owner,
+        analysis_refs=analysis_refs,
     )
 
     gate_target = rules.get("transition_gate", {}).get("target_stage", "rollout/platform_assets")
