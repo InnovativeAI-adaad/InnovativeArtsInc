@@ -1,0 +1,47 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  quality-gates:
+    name: Repository quality gates
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      PYTHONPATH: ${{ github.workspace }}
+
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install CI validation dependencies
+        run: python -m pip install --upgrade pip jsonschema
+
+      - name: Run Python unit tests
+        run: python -m unittest discover
+
+      - name: Validate metadata schemas
+        run: python pipelines/ci_quality_gates.py --schema-only
+
+      - name: Validate action registry
+        run: python pipelines/validate_action_registry.py
+
+      - name: Validate agent log HMAC chain when key is available
+        env:
+          ADAAD_HMAC_KEY: ${{ secrets.ADAAD_HMAC_KEY }}
+        run: |
+          if [ -n "${ADAAD_HMAC_KEY:-}" ]; then
+            python pipelines/validate_agent_log_chain.py
+          else
+            echo "SKIP: ADAAD_HMAC_KEY is not configured for this CI context; HMAC chain validation requires the private signing key."
+          fi
+
+      - name: Dry-run autonomous media job and validate policy gates
+        run: python pipelines/ci_quality_gates.py --dry-run-media-job --policy-authorization
