@@ -5,6 +5,7 @@ from .service import (
     MediaConductorError,
     MediaConductorPaths,
     StageHandler,
+    run_media_conductor,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "MediaConductorError",
     "MediaConductorPaths",
     "StageHandler",
+    "run_media_conductor",
 ]
