@@ -5,6 +5,9 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import math
+import struct
+import wave
 import os
 import urllib.error
 import urllib.request
@@ -156,6 +159,28 @@ class StubGenAudioAdapter:
         output_dir.mkdir(parents=True, exist_ok=True)
         audio_path = output_dir / f"{replay_key}.wav"
 
+        render_settings = {
+            "prompt": prompt,
+            "style_profile": style_profile,
+            "seed": seed,
+            "length": length,
+            "tempo": tempo,
+            "key": key,
+        }
+        provider_generation_id = f"{self.provider_name}:{_canonical_digest(render_settings)[:16]}"
+        sample_rate_hz = 44_100
+        duration_seconds = max(1, min(int(length), 5))
+        frame_count = sample_rate_hz * duration_seconds
+        amplitude = 0.2
+        with wave.open(str(audio_path), "wb") as wav:
+            wav.setnchannels(2)
+            wav.setsampwidth(2)
+            wav.setframerate(sample_rate_hz)
+            frames = bytearray()
+            for frame_idx in range(frame_count):
+                sample = int(32767 * amplitude * math.sin(2 * math.pi * 220 * (frame_idx / sample_rate_hz)))
+                frames.extend(struct.pack("<hh", sample, sample))
+            wav.writeframes(bytes(frames))
         render_settings = _build_render_settings(
             prompt=prompt,
             style_profile=style_profile,
