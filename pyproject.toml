@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=61", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "innovativeartsinc"
+version = "0.1.0"
+description = "Governed autonomous media pipeline utilities for InnovativeArtsInc."
+readme = "README.md"
+requires-python = ">=3.11"
+license = { text = "Proprietary" }
+authors = [
+  { name = "InnovativeArtsInc" }
+]
+keywords = ["autonomous-media", "governance", "creative-operations"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Intended Audience :: Developers",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Programming Language :: Python :: 3.14",
+  "Private :: Do Not Upload",
+]
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+  "build>=1.2",
+  "pytest>=8.0",
+]
+test = [
+  "pytest>=8.0",
+]
+
+[project.scripts]
+autonomous-media = "pipelines.autonomous_media_cli:main"
+iai-validate-action-registry = "pipelines.validate_action_registry:main"
+iai-validate-agent-log-chain = "pipelines.validate_agent_log_chain:main"
+iai-validate-media-outputs = "pipelines.validate_media_outputs:main"
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["core*", "pipelines*", "services*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "pipelines"]
+python_files = ["test_*.py"]
+pythonpath = ["."]
