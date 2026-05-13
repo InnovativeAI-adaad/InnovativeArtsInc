@@ -46,9 +46,11 @@ This index maps governance and operational documentation by authority level, aud
 | [`SECURITY.md`](./SECURITY.md) | Normative (security policy) | owner / operator / agent / reviewer | HUMAN-0 only | Incident response, secrets/permissions policy checks |
 | [`GOVERNANCE.md`](./GOVERNANCE.md) | Normative (constitutional governance) | owner / reviewer / operator / agent | HUMAN-0 only | Authority disputes, constitutional interpretation, approval boundary checks |
 | [`AGENT_LOG.md`](./AGENT_LOG.md) | Normative record (audit ledger) | owner / operator / reviewer / agent | Append-only policy; HUMAN-0 controls retention/process changes | Incident forensics, action traceability, compliance review |
+| [`docs/production/ArtsInc_Autonomous_Media_Generation_Architecture.md`](./docs/production/ArtsInc_Autonomous_Media_Generation_Architecture.md) | Informational (product roadmap architecture) | owner / operator / agent / reviewer | Open contribution; HUMAN-0 review for governance-impacting changes | Autonomous media roadmap planning, service mapping, lifecycle/gate design |
 
 ## Quick Links
 
 - Agent manifest: [`AGENT.md`](./AGENT.md)
 - Canonical autonomy matrix: [`AUTONOMY.md`](./AUTONOMY.md)
 - MCP authorization registry: [`MCP_REGISTRY.md`](./MCP_REGISTRY.md)
+- Product roadmap architecture: [`ArtsInc Autonomous Media Generation Architecture`](./docs/production/ArtsInc_Autonomous_Media_Generation_Architecture.md)

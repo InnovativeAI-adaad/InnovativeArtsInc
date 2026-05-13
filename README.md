@@ -26,6 +26,7 @@ InnovativeArtsInc is an AI-assisted music and creative operations repository for
 | [`SECURITY.md`](./SECURITY.md) | Security policy |
 | [`GOVERNANCE.md`](./GOVERNANCE.md) | Governance policy |
 | [`AGENT_LOG.md`](./AGENT_LOG.md) | Audit ledger |
+| [`docs/production/ArtsInc_Autonomous_Media_Generation_Architecture.md`](./docs/production/ArtsInc_Autonomous_Media_Generation_Architecture.md) | Autonomous media generation roadmap architecture |
 
 ## Installation and Quickstart
 
@@ -91,6 +92,7 @@ Current checked-in layout (fresh clone):
 - `pipelines/*`
 - `projects/jrt/metadata/*` (currently `incidents`, `jobs`, `schema`)
 - `registry/*`
+- `docs/production/ArtsInc_Autonomous_Media_Generation_Architecture.md` product roadmap architecture for autonomous media generation lifecycle, service map, gates, and milestones
 
 Note: `./init_engine.sh` can scaffold additional directories at runtime that may not be present in a fresh clone.
 
