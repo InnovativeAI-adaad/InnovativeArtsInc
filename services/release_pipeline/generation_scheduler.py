@@ -22,6 +22,7 @@ class CandidateGenerationPlan:
     quality_likelihood: float
     estimated_cost_usd: float
     expected_latency_ms: int
+    model_version: str | None = None
 
 
 @dataclass(frozen=True)
@@ -176,6 +177,7 @@ def select_generation_plan(
         "selected_plan_id": selected.candidate.plan_id,
         "selected_provider": selected.candidate.provider,
         "selected_model": selected.candidate.model,
+        "selected_model_version": selected.candidate.model_version,
         "selected_score": selected.score,
         "provider_model_preset": preset,
         "ranking": [
@@ -184,6 +186,7 @@ def select_generation_plan(
                 "provider": item.candidate.provider,
                 "model": item.candidate.model,
                 "score": item.score,
+                "model_version": item.candidate.model_version,
                 "quality_component": item.quality_component,
                 "cost_component": item.cost_component,
                 "latency_component": item.latency_component,
@@ -193,6 +196,22 @@ def select_generation_plan(
             for item in ranked
         ],
     }
+
+
+def media_generation_adapter_config_from_decision(
+    scheduler_decision: dict[str, Any],
+    *,
+    dry_run: bool | None = None,
+) -> dict[str, Any]:
+    """Return provider adapter config that media_generation.service can consume."""
+    config = {
+        "provider_name": scheduler_decision.get("selected_provider"),
+        "model": scheduler_decision.get("selected_model"),
+        "model_version": scheduler_decision.get("selected_model_version"),
+    }
+    if dry_run is not None:
+        config["dry_run"] = dry_run
+    return config
 
 
 def persist_scheduler_decision_metadata(
@@ -213,6 +232,7 @@ def persist_scheduler_decision_metadata(
         "selected_plan_id": scheduler_decision["selected_plan_id"],
         "selected_provider": scheduler_decision["selected_provider"],
         "selected_model": scheduler_decision["selected_model"],
+        "selected_model_version": scheduler_decision.get("selected_model_version"),
         "selected_score": scheduler_decision["selected_score"],
         "provider_model_preset": scheduler_decision["provider_model_preset"],
         "ranked_candidates": scheduler_decision["ranking"],
