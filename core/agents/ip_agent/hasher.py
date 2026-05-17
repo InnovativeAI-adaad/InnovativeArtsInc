@@ -65,6 +65,7 @@ def generate_provenance_entry(
     agent: str,
     parent_artifact_hash: str | None = None,
     retry_attempt: int = 0,
+    semantic_fingerprint: dict | None = None,
 ) -> dict:
     """Generate a provenance entry with required sovereign-ledger fields."""
     target = Path(file_path)
@@ -76,6 +77,8 @@ def generate_provenance_entry(
         "track_id": track_id,
         "file": str(target),
         "sha256": file_hash,
+        "binary_digest_sha256": file_hash,
+        "semantic_fingerprint": semantic_fingerprint,
         "agent": agent,
         "parent_artifact_hash": parent_artifact_hash,
         "retry_attempt": retry_attempt,
@@ -96,6 +99,7 @@ def append_provenance_entries(
     policy_version: str = "1.0.0",
     correlation_id: str | None = None,
     agent_log_path: str | Path = "AGENT_LOG.md",
+    semantic_fingerprints: dict[str, dict] | None = None,
 ) -> list[dict]:
     """Hash artifacts and append JSONL provenance entries.
 
@@ -126,6 +130,7 @@ def append_provenance_entries(
             agent=agent,
             parent_artifact_hash=parent_artifact_hash,
             retry_attempt=retry_attempt,
+            semantic_fingerprint=(semantic_fingerprints or {}).get(str(Path(file_path))),
         )
         for file_path in file_paths
     ]
