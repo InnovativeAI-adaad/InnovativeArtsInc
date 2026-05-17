@@ -67,7 +67,10 @@ def _append_provenance_if_missing(provenance_log_path: Path, entry: dict[str, An
                 line = line.strip()
                 if not line:
                     continue
-                row = json.loads(line)
+                try:
+                    row = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
                 existing_key = f"{row.get('workflow')}|{row.get('replay_key')}|{row.get('audio_path')}"
                 if existing_key == dedupe_key:
                     return

@@ -150,6 +150,38 @@ class MediaGenerationServiceTests(unittest.TestCase):
             self.assertEqual(len(provenance_rows), 1)
 
 
+
+    def test_provenance_dedupe_skips_invalid_jsonl_rows(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            params = {
+                "prompt": "Ambient pulses with distant choir",
+                "style_profile": "jrt.noir.v1",
+                "seed": 808,
+                "length": 24,
+                "tempo": 104,
+                "key": "C minor",
+                "uniqueness_report_ref": "registry/reports/uniqueness-provenance-001.json",
+                "project_root": root,
+            }
+
+            first = generate_music_for_wf005(**params)
+            provenance_log = root / "registry" / "provenance_log.jsonl"
+            valid_line = provenance_log.read_text(encoding="utf-8").strip()
+            provenance_log.write_text("{not json}\n" + valid_line + "\n", encoding="utf-8")
+
+            second = generate_music_for_wf005(**params)
+
+            self.assertTrue(second["replayed"])
+            self.assertEqual(first["replay_key"], second["replay_key"])
+            rows = [
+                json.loads(line)
+                for line in provenance_log.read_text(encoding="utf-8").splitlines()
+                if line.strip() and not line.startswith("{not json}")
+            ]
+            self.assertEqual(len(rows), 1)
+            self.assertEqual(rows[0]["replay_key"], first["replay_key"])
+
     def test_stub_generations_vary_with_seed_and_job_context(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
