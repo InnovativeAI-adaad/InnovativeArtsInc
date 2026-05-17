@@ -43,10 +43,12 @@ class MediaGenerationServiceTests(unittest.TestCase):
             provenance_log = root / "registry" / "provenance_log.jsonl"
             self.assertTrue(provenance_log.exists())
             row = json.loads(provenance_log.read_text(encoding="utf-8").strip())
-            self.assertEqual(row["stage"], "generate_music")
+            self.assertEqual(row["stage"], "generate_scene_media")
             self.assertEqual(row["workflow"], "WF-005")
             self.assertEqual(row["provider_name"], "stub_genaudio")
-            self.assertEqual(row["request_payload_hash"], result["render_metadata"]["request_payload_hash"])
+            self.assertEqual(row["audio_request_payload_hash"], result["render_metadata"]["request_payload_hash"])
+            self.assertEqual(row["visual_request_payload_hash"], result["visual_request_payload_hash"])
+            self.assertIn("scene_hash", result["scene_contract"])
 
     def test_deterministic_replay_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -109,6 +111,32 @@ class MediaGenerationServiceTests(unittest.TestCase):
             self.assertNotEqual(first["provider_generation_id"], second["provider_generation_id"])
             self.assertNotEqual(first_digest, second_digest)
 
+    def test_contract_and_visual_fingerprints_are_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base_params = {
+                "prompt": "Neon noir pulse with choir textures",
+                "style_profile": {"profile": "jrt.noir.v2"},
+                "seed": 333,
+                "length": 28,
+                "tempo": 110,
+                "key": "F minor",
+                "job_id": "job-contract-1",
+                "uniqueness_report_ref": "registry/reports/uniqueness-201.json",
+                "project_root": root,
+            }
+            first = generate_music_for_wf005(**base_params)
+            second = generate_music_for_wf005(**base_params)
+
+            self.assertEqual(first["scene_contract"]["scene_hash"], second["scene_contract"]["scene_hash"])
+            self.assertEqual(first["render_metadata"]["request_payload_hash"], second["render_metadata"]["request_payload_hash"])
+            self.assertEqual(first["visual_request_payload_hash"], second["visual_request_payload_hash"])
+
+            changed = generate_music_for_wf005(**{**base_params, "seed": 334, "job_id": "job-contract-2"})
+            self.assertNotEqual(first["scene_contract"]["scene_hash"], changed["scene_contract"]["scene_hash"])
+            self.assertNotEqual(first["render_metadata"]["request_payload_hash"], changed["render_metadata"]["request_payload_hash"])
+            self.assertNotEqual(first["visual_request_payload_hash"], changed["visual_request_payload_hash"])
+
     def test_scheduler_decision_can_select_dry_run_provider_adapter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)
@@ -136,7 +164,9 @@ class MediaGenerationServiceTests(unittest.TestCase):
             row = json.loads((root / "registry" / "provenance_log.jsonl").read_text(encoding="utf-8").strip())
             self.assertEqual(row["provider_name"], "suno")
             self.assertEqual(row["model"], "chirp-v4")
-            self.assertEqual(row["request_payload_hash"], result["render_metadata"]["request_payload_hash"])
+            self.assertEqual(row["audio_request_payload_hash"], result["render_metadata"]["request_payload_hash"])
+            self.assertEqual(row["visual_request_payload_hash"], result["visual_request_payload_hash"])
+            self.assertIn("scene_hash", result["scene_contract"])
 
     def test_live_provider_adapter_requires_environment_credentials(self) -> None:
         previous_key = os.environ.pop("SUNO_API_KEY", None)

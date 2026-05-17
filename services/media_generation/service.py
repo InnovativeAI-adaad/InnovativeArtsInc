@@ -4,39 +4,14 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-from .adapters import MediaGenerationAdapter, StubGenAudioAdapter
-from .audio_analysis import write_analysis_artifact
+from services.generation import SceneGenerationContract
+
 from .adapters import MediaGenerationAdapter, StubGenAudioAdapter, build_media_generation_adapter_from_scheduler
-
-
-@dataclass(frozen=True)
-class ReplayContract:
-    """Deterministic replay key contract for media generation."""
-
-    prompt: str
-    style_profile: str | dict[str, Any]
-    seed: int | str
-    length: int
-    tempo: int | None = None
-    key: str | None = None
-
-    def as_payload(self) -> dict[str, Any]:
-        return {
-            "prompt": self.prompt,
-            "style_profile": self.style_profile,
-            "seed": self.seed,
-            "length": self.length,
-            "tempo": self.tempo,
-            "key": self.key,
-        }
-
-    def deterministic_key(self) -> str:
-        canonical = json.dumps(self.as_payload(), sort_keys=True, separators=(",", ":"))
-        return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+from .audio_analysis import write_analysis_artifact
+from .visuals import generate_visual_params
 
 
 def _append_provenance_if_missing(provenance_log_path: Path, entry: dict[str, Any]) -> None:
@@ -65,6 +40,7 @@ def generate_music_for_wf005(
     length: int,
     tempo: int | None = None,
     key: str | None = None,
+    job_id: str | None = None,
     uniqueness_report_ref: str,
     provider: MediaGenerationAdapter | None = None,
     scheduler_decision: dict[str, Any] | None = None,
@@ -72,15 +48,26 @@ def generate_music_for_wf005(
     project_root: str | Path = ".",
 ) -> dict[str, Any]:
     """Callable WF-005 entrypoint that enforces replay and provenance conventions."""
-    replay_contract = ReplayContract(
+    replay_payload = {
+        "prompt": prompt,
+        "style_profile": style_profile,
+        "seed": seed,
+        "duration": length,
+        "tempo": tempo,
+        "key": key,
+    }
+    replay_key = hashlib.sha256(json.dumps(replay_payload, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
+
+    scene_contract = SceneGenerationContract(
+        replay_key=replay_key,
+        seed=seed,
+        job_id=job_id or replay_key,
         prompt=prompt,
         style_profile=style_profile,
-        seed=seed,
-        length=length,
+        duration=length,
         tempo=tempo,
         key=key,
     )
-    replay_key = replay_contract.deterministic_key()
 
     root = Path(project_root)
     audio_dir = root / "projects" / "jrt" / "audio" / "generated"
@@ -110,6 +97,8 @@ def generate_music_for_wf005(
         replay_key=replay_key,
     )
 
+    visual_result = generate_visual_params(scene_contract)
+
     analysis_artifact = write_analysis_artifact(
         audio_path=provider_result.audio_path,
         job_id=replay_key,
@@ -123,11 +112,14 @@ def generate_music_for_wf005(
         "uniqueness_report_ref": uniqueness_report_ref,
         "analysis_artifact": analysis_artifact["artifact_path"],
         "replay_key": replay_key,
+        "scene_contract": scene_contract.as_payload(),
+        "visual_request": visual_result["visual_request"],
+        "visual_request_payload_hash": visual_result["visual_request_payload_hash"],
         "replayed": False,
     }
 
     render_record = {
-        "contract": replay_contract.as_payload(),
+        "contract": scene_contract.as_payload(),
         "replay_key": replay_key,
         "result": response,
     }
@@ -135,7 +127,7 @@ def generate_music_for_wf005(
 
     provenance_entry = {
         "workflow": "WF-005",
-        "stage": "generate_music",
+        "stage": "generate_scene_media",
         "replay_key": replay_key,
         "audio_path": provider_result.audio_path,
         "provider_generation_id": provider_result.provider_generation_id,
@@ -145,7 +137,8 @@ def generate_music_for_wf005(
         "provider_name": provider_result.render_metadata.get("provider_name"),
         "model": provider_result.render_metadata.get("model"),
         "model_version": provider_result.render_metadata.get("model_version"),
-        "request_payload_hash": provider_result.render_metadata.get("request_payload_hash"),
+        "audio_request_payload_hash": provider_result.render_metadata.get("request_payload_hash"),
+        "visual_request_payload_hash": visual_result["visual_request_payload_hash"],
         "generation_timestamp": provider_result.render_metadata.get("generation_timestamp"),
         "render_metadata": provider_result.render_metadata,
     }
