@@ -530,6 +530,40 @@ class IPAgentSimilarityPolicyTests(unittest.TestCase):
         mock_append_entries.assert_not_called()
         self.assertEqual(mock_append_metric.call_count, 1)
 
+    def test_run_similarity_audit_excludes_current_candidate_from_provenance(self) -> None:
+        policy_path = self._policy_file(revise=0.5, block=0.9)
+        provenance = self._provenance_file(
+            [
+                {
+                    "job_id": "job-self",
+                    "track_id": "track-self",
+                    "provider_generation_id": "provider-self",
+                    "render_metadata": {"prompt": "same"},
+                    "audio_fingerprint": [1.0, 0.0],
+                    "embedding": [1.0, 0.0],
+                }
+            ]
+        )
+
+        result = agent.run_similarity_audit(
+            {
+                "job_id": "job-self",
+                "track_id": "track-self",
+                "exclude_job_id": "job-self",
+                "exclude_track_id": "track-self",
+                "exclude_provider_generation_id": "provider-self",
+                "similarity_policy_path": policy_path,
+                "provenance_log_path": provenance,
+                "render_metadata": {"prompt": "same", "provider_generation_id": "provider-self"},
+                "audio_fingerprint": [1.0, 0.0],
+                "embedding": [1.0, 0.0],
+            }
+        )
+
+        self.assertEqual(result["decision"], "pass")
+        self.assertAlmostEqual(result["max_similarity"], 0.0, places=6)
+        self.assertIsNone(result["audit_artifact"]["most_similar_ref"])
+
 
 if __name__ == "__main__":
     unittest.main()
