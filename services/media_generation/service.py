@@ -21,6 +21,21 @@ class GenerationMode(str, Enum):
     FULL = "full"
 
 
+def _load_brand_profile(
+    *, brand_profile_id: str | None, project_root: Path
+) -> tuple[dict[str, Any] | None, str | None]:
+    if not brand_profile_id:
+        return None, None
+    profile_path = project_root / "registry" / "style_memory" / f"{brand_profile_id}.json"
+    if not profile_path.exists():
+        raise ValueError(f"Unknown brand_profile_id '{brand_profile_id}' at {profile_path}")
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    profile_hash = hashlib.sha256(
+        json.dumps(profile, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return profile, profile_hash
+
+
 @dataclass(frozen=True)
 class ReplayContract:
     """Deterministic replay key contract for media generation."""
@@ -34,6 +49,7 @@ class ReplayContract:
     key: str | None = None
     brand_profile_id: str | None = None
     brand_profile_hash: str | None = None
+    generation_mode: str = GenerationMode.FULL.value
 
     def as_payload(self) -> dict[str, Any]:
         return {
@@ -46,6 +62,7 @@ class ReplayContract:
             "key": self.key,
             "brand_profile_id": self.brand_profile_id,
             "brand_profile_hash": self.brand_profile_hash,
+            "generation_mode": self.generation_mode,
         }
 
     def deterministic_key(self) -> str:
@@ -89,6 +106,7 @@ def generate_music_for_wf005(
     length: int,
     tempo: int | None = None,
     key: str | None = None,
+    generation_mode: GenerationMode = GenerationMode.FULL,
     brand_profile_id: str | None = None,
     job_id: str | None = None,
     generation_mode: GenerationMode = GenerationMode.FULL,
@@ -110,6 +128,7 @@ def generate_music_for_wf005(
         key=key,
         brand_profile_id=brand_profile_id,
         brand_profile_hash=brand_profile_hash,
+        generation_mode=generation_mode.value,
     )
     replay_key = replay_contract.deterministic_key()
     effective_length = min(length, 12) if generation_mode == GenerationMode.PREVIEW else length
@@ -138,11 +157,18 @@ def generate_music_for_wf005(
         return response
 
     active_provider = provider or (build_media_generation_adapter_from_scheduler(scheduler_decision, dry_run=dry_run) if scheduler_decision else StubGenAudioAdapter())
+    active_provider = provider or (
+        build_media_generation_adapter_from_scheduler(scheduler_decision, dry_run=dry_run)
+        if scheduler_decision
+        else StubGenAudioAdapter()
+    )
+    is_preview = generation_mode == GenerationMode.PREVIEW
+    sample_rate_hz = 22050 if is_preview else 44100
     provider_result = active_provider.generate(
         prompt=prompt,
         style_profile=style_profile,
         seed=seed,
-        length=effective_length,
+        length=length,
         tempo=tempo,
         key=key,
         brand_profile=brand_profile,
@@ -156,6 +182,12 @@ def generate_music_for_wf005(
     )
     visual_result = generate_visual_params(scene_contract)
     analysis_artifact = write_analysis_artifact(audio_path=provider_result.audio_path, job_id=replay_key, artifact_dir=root / "projects" / "jrt" / "metadata" / "analysis")
+
+    analysis_artifact = write_analysis_artifact(
+        audio_path=provider_result.audio_path,
+        job_id=replay_key,
+        artifact_dir=root / "projects" / "jrt" / "metadata" / "analysis",
+    )
 
     cost_block = {
         "estimated": provider_result.render_metadata.get("estimated_cost"),
@@ -198,6 +230,32 @@ def generate_music_for_wf005(
         "request_payload_hash": provider_result.render_metadata.get("request_payload_hash"),
         "visual_request_payload_hash": visual_result["visual_request_payload_hash"], "generation_timestamp": provider_result.render_metadata.get("generation_timestamp"),
         "brand_profile_id": brand_profile_id, "brand_profile_hash": brand_profile_hash, "render_metadata": provider_result.render_metadata,
+
+    render_record = {
+        "contract": replay_contract.as_payload(),
+        "replay_key": replay_key,
+        "result": response,
+    }
+    render_record_path.write_text(json.dumps(render_record, indent=2, sort_keys=True), encoding="utf-8")
+
+    provenance_entry = {
+        "workflow": "WF-005",
+        "stage": "generate_scene_media",
+        "replay_key": replay_key,
+        "audio_path": provider_result.audio_path,
+        "provider_generation_id": provider_result.provider_generation_id,
+        "uniqueness_report_ref": uniqueness_report_ref,
+        "render_record": str(render_record_path),
+        "analysis_artifact": analysis_artifact["artifact_path"],
+        "provider_name": provider_result.render_metadata.get("provider_name"),
+        "model": provider_result.render_metadata.get("model"),
+        "model_version": provider_result.render_metadata.get("model_version"),
+        "audio_request_payload_hash": provider_result.render_metadata.get("request_payload_hash"),
+        "visual_request_payload_hash": None,
+        "generation_timestamp": provider_result.render_metadata.get("generation_timestamp"),
+        "brand_profile_id": brand_profile_id,
+        "brand_profile_hash": brand_profile_hash,
+        "render_metadata": provider_result.render_metadata,
         "generation_mode": generation_mode.value,
     }
     _append_provenance_if_missing(root / "registry" / "provenance_log.jsonl", provenance_entry)
