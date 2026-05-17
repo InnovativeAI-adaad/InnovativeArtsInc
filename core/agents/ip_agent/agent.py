@@ -260,6 +260,16 @@ def _extract_prior_signature(entry: dict) -> tuple[Any, Any, Any]:
     return render_metadata, audio_fingerprint, embedding
 
 
+
+
+def _is_excluded_provenance_entry(entry: dict[str, Any], *, excluded_job_id: str | None, excluded_track_id: str | None, excluded_provider_generation_id: str | None) -> bool:
+    if excluded_job_id and str(entry.get("job_id") or "") == excluded_job_id:
+        return True
+    if excluded_track_id and str(entry.get("track_id") or "") == excluded_track_id:
+        return True
+    if excluded_provider_generation_id and str(entry.get("provider_generation_id") or "") == excluded_provider_generation_id:
+        return True
+    return False
 def _read_provenance_entries(log_path: str) -> list[dict]:
     path = Path(log_path)
     if not path.exists():
@@ -530,9 +540,22 @@ def run_similarity_audit(payload: dict) -> dict:
     prior_entries = _read_provenance_entries(log_path)
     strategies = _build_strategies(policy)
 
+    excluded_job_id = payload.get("exclude_job_id")
+    excluded_track_id = payload.get("exclude_track_id")
+    excluded_provider_generation_id = payload.get("exclude_provider_generation_id")
+
     method_scores_by_entry: list[tuple[list[SimilarityMethodResult], dict[str, Any] | None]] = []
 
     for entry in prior_entries:
+        if _is_excluded_provenance_entry(
+            entry,
+            excluded_job_id=str(excluded_job_id) if excluded_job_id else None,
+            excluded_track_id=str(excluded_track_id) if excluded_track_id else None,
+            excluded_provider_generation_id=(
+                str(excluded_provider_generation_id) if excluded_provider_generation_id else None
+            ),
+        ):
+            continue
         prior_render_metadata, prior_audio_fingerprint, prior_embedding = _extract_prior_signature(entry)
         prior_inputs = {
             "metadata": prior_render_metadata,
@@ -615,6 +638,11 @@ def run_similarity_audit(payload: dict) -> dict:
             "embedding": candidate_inputs["embedding"],
         },
         "provenance_log_path": log_path,
+        "exclusions": {
+            "job_id": excluded_job_id,
+            "track_id": excluded_track_id,
+            "provider_generation_id": excluded_provider_generation_id,
+        },
         "generated_at": dt.datetime.now(dt.timezone.utc).isoformat(),
     }
     artifact_path.write_text(json.dumps(audit_payload, sort_keys=True, indent=2) + "\n", encoding="utf-8")
