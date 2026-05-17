@@ -88,6 +88,9 @@ class MediaGenerationAdapter(Protocol):
         replay_key: str,
         tempo: int | None = None,
         key: str | None = None,
+        brand_profile: dict[str, Any] | None = None,
+        brand_profile_id: str | None = None,
+        brand_profile_hash: str | None = None,
     ) -> ProviderGenerationResult:
         """Generate a render for the provided contract payload."""
 
@@ -116,6 +119,9 @@ def _build_render_settings(
     length: int,
     tempo: int | None,
     key: str | None,
+    brand_profile: dict[str, Any] | None = None,
+    brand_profile_id: str | None = None,
+    brand_profile_hash: str | None = None,
 ) -> dict[str, Any]:
     return {
         "prompt": prompt,
@@ -124,6 +130,9 @@ def _build_render_settings(
         "length": length,
         "tempo": tempo,
         "key": key,
+        "brand_profile": brand_profile,
+        "brand_profile_id": brand_profile_id,
+        "brand_profile_hash": brand_profile_hash,
     }
 
 
@@ -131,6 +140,9 @@ def _build_provider_payload(*, render_settings: dict[str, Any], model: str, mode
     payload = {
         "prompt": render_settings["prompt"],
         "style_profile": render_settings["style_profile"],
+        "brand_profile": render_settings["brand_profile"],
+        "brand_profile_id": render_settings["brand_profile_id"],
+        "brand_profile_hash": render_settings["brand_profile_hash"],
         "seed": render_settings["seed"],
         "duration_seconds": render_settings["length"],
         "tempo": render_settings["tempo"],
@@ -189,6 +201,9 @@ class StubGenAudioAdapter:
         replay_key: str,
         tempo: int | None = None,
         key: str | None = None,
+        brand_profile: dict[str, Any] | None = None,
+        brand_profile_id: str | None = None,
+        brand_profile_hash: str | None = None,
     ) -> ProviderGenerationResult:
         output_dir.mkdir(parents=True, exist_ok=True)
         audio_path = output_dir / f"{replay_key}.wav"
@@ -209,6 +224,9 @@ class StubGenAudioAdapter:
             length=length,
             tempo=tempo,
             key=key,
+            brand_profile=brand_profile,
+            brand_profile_id=brand_profile_id,
+            brand_profile_hash=brand_profile_hash,
         )
         request_payload = _build_provider_payload(
             render_settings=render_settings,
@@ -299,6 +317,9 @@ class _HttpAudioProviderAdapter:
         replay_key: str,
         tempo: int | None = None,
         key: str | None = None,
+        brand_profile: dict[str, Any] | None = None,
+        brand_profile_id: str | None = None,
+        brand_profile_hash: str | None = None,
     ) -> ProviderGenerationResult:
         output_dir.mkdir(parents=True, exist_ok=True)
         render_settings = _build_render_settings(
@@ -308,6 +329,9 @@ class _HttpAudioProviderAdapter:
             length=length,
             tempo=tempo,
             key=key,
+            brand_profile=brand_profile,
+            brand_profile_id=brand_profile_id,
+            brand_profile_hash=brand_profile_hash,
         )
         request_payload = _build_provider_payload(
             render_settings=render_settings,

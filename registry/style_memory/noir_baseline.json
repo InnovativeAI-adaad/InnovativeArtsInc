@@ -1,0 +1,17 @@
+{
+  "profile_id": "noir_baseline",
+  "audio_motifs": {
+    "tempo_bpm_range": [88, 106],
+    "instrumentation_hints": [
+      "felt piano ostinato",
+      "upright bass",
+      "brushed snare",
+      "warm tape pad"
+    ]
+  },
+  "visual_motifs": {
+    "palette": ["#111827", "#374151", "#9CA3AF", "#F3F4F6"],
+    "framing_style": "intimate close-medium compositions with negative space",
+    "motion_profile": "slow push-ins, restrained handheld drift"
+  }
+}
