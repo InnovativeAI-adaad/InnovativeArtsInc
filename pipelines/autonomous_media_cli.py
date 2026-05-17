@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
-from core.gatekeeper.entry_gate import enforce_gate
+from services.integration.facade import build_runtime_config_from_env, build_runtime_context
 from services.media_conductor.service import MediaConductorError, run_media_conductor
 
 
@@ -93,9 +93,15 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
         print(json.dumps({"status": "denied", "gate": decision}, indent=2, sort_keys=True), file=sys.stderr)
         return 3
     payload = _resolve_run_payload(args)
-    schema_path = Path(payload["repo_root"]) / "projects" / "jrt" / "metadata" / "schema" / "media_job.schema.json"
-    if not schema_path.exists():
-        print(f"ERROR: media job schema not found: {schema_path}", file=sys.stderr)
+    try:
+        build_runtime_context(build_runtime_config_from_env(repo_root=payload["repo_root"]))
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+    try:
+        context = build_runtime_context(build_runtime_config_from_env(repo_root=payload["repo_root"]))
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
     print(
@@ -121,6 +127,12 @@ def _cmd_run(args: argparse.Namespace) -> int:
     payload = _resolve_run_payload(args)
     if args.require_agent_enabled and os.getenv("AGENT_ENABLED", "true").lower() != "true":
         print("ERROR: AGENT_ENABLED is not true; refusing production run.", file=sys.stderr)
+        return 2
+
+    try:
+        build_runtime_context(build_runtime_config_from_env(repo_root=payload["repo_root"]))
+    except ValueError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
         return 2
 
     try:

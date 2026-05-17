@@ -31,7 +31,7 @@ from services.creative_planner.planner import (
     CampaignContext,
     CreativePlanner,
 )
-from services.media_conductor.service import MediaConductor, MediaConductorPaths
+from services.integration.facade import build_runtime_config_from_env, build_runtime_context
 from services.media_generation.service import generate_music_for_wf005
 from services.release_pipeline.service import build_release_bundle, write_release_bundle
 from services.release_pipeline.generation_scheduler import schedule_generation_job
@@ -556,8 +556,7 @@ def run_autonomous_media_job(
         release_bundle_path = write_release_bundle(release_bundle, repo_root=root)
         release_bundle_artifact_ref = str(release_bundle_path.relative_to(root))
 
-        conductor = MediaConductor(
-            paths=MediaConductorPaths.from_repo_root(root),
+        conductor = context.create_media_conductor(
             actor="autonomous-media-job-cli",
             handlers={
                 "quality_validation": lambda _: {
