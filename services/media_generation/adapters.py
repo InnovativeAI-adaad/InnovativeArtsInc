@@ -120,6 +120,9 @@ class MediaGenerationAdapter(Protocol):
         brand_profile: dict[str, Any] | None = None,
         brand_profile_id: str | None = None,
         brand_profile_hash: str | None = None,
+        generation_mode: str = "full",
+        sample_rate_hz: int = 44100,
+        visual_quality_tier: str = "high",
     ) -> ProviderGenerationResult:
         """Generate a render for the provided contract payload."""
 
@@ -233,6 +236,9 @@ class StubGenAudioAdapter:
         brand_profile: dict[str, Any] | None = None,
         brand_profile_id: str | None = None,
         brand_profile_hash: str | None = None,
+        generation_mode: str = "full",
+        sample_rate_hz: int = 44100,
+        visual_quality_tier: str = "high",
     ) -> ProviderGenerationResult:
         output_dir.mkdir(parents=True, exist_ok=True)
         audio_path = output_dir / f"{replay_key}.wav"
@@ -350,6 +356,9 @@ class _HttpAudioProviderAdapter:
         brand_profile: dict[str, Any] | None = None,
         brand_profile_id: str | None = None,
         brand_profile_hash: str | None = None,
+        generation_mode: str = "full",
+        sample_rate_hz: int = 44100,
+        visual_quality_tier: str = "high",
     ) -> ProviderGenerationResult:
         output_dir.mkdir(parents=True, exist_ok=True)
         render_settings = _build_render_settings(
