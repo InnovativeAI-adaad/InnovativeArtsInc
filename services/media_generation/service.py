@@ -145,12 +145,42 @@ def generate_music_for_wf005(
         artifact_dir=root / "projects" / "jrt" / "metadata" / "analysis",
     )
 
+    cost_block = {
+        "estimated": provider_result.render_metadata.get("estimated_cost"),
+        "actual": provider_result.render_metadata.get("actual_cost"),
+        "currency": provider_result.render_metadata.get("currency", "USD"),
+        "provider_rate_ref": provider_result.render_metadata.get("provider_rate_ref"),
+    }
+    artifacts = [
+        {
+            "type": "audio",
+            "path": provider_result.audio_path,
+            "digest": provider_result.render_metadata.get("request_payload_hash"),
+            "duration": length,
+        },
+        {
+            "type": "analysis",
+            "path": analysis_artifact["artifact_path"],
+            "digest": hashlib.sha256(json.dumps(analysis_artifact, sort_keys=True).encode("utf-8")).hexdigest(),
+            "resolution": analysis_artifact.get("schema_version"),
+        },
+    ]
+
     response = {
+        "job_id": replay_key,
+        "replay_key": replay_key,
+        "provider_generation_id": provider_result.provider_generation_id,
+        "artifacts": artifacts,
+        "cost": cost_block,
+        "provenance_ref": "registry/provenance_log.jsonl",
+        "policy_ref": uniqueness_report_ref,
         "audio_path": provider_result.audio_path,
         "render_metadata": provider_result.render_metadata,
-        "provider_generation_id": provider_result.provider_generation_id,
         "uniqueness_report_ref": uniqueness_report_ref,
         "analysis_artifact": analysis_artifact["artifact_path"],
+        # transition aliases for backward-compatible payload consumers
+        "artifact_refs": artifacts,
+        "cost_summary": cost_block,
         "replay_key": replay_key,
         "brand_profile_id": brand_profile_id,
         "brand_profile_hash": brand_profile_hash,

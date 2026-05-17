@@ -71,6 +71,36 @@ class ProviderGenerationResult:
     provider_generation_id: str
 
 
+def normalize_provider_response_payload(payload: dict[str, Any] | None) -> dict[str, Any]:
+    """Normalize provider responses to a minimal, predictable dict contract."""
+    payload = payload or {}
+    normalized: dict[str, Any] = {}
+
+    if isinstance(payload.get("id"), str):
+        normalized["id"] = payload["id"]
+    elif isinstance(payload.get("generation_id"), str):
+        normalized["id"] = payload["generation_id"]
+    elif isinstance(payload.get("prediction"), dict) and isinstance(payload["prediction"].get("id"), str):
+        normalized["id"] = payload["prediction"]["id"]
+
+    audio_blob = payload.get("audio_base64") or payload.get("audio")
+    if isinstance(audio_blob, str) and audio_blob.strip():
+        normalized["audio_base64"] = audio_blob
+
+    audio_url = payload.get("audio_url") or payload.get("url")
+    output = payload.get("output")
+    if not audio_url and isinstance(output, list) and output:
+        audio_url = output[0]
+    if not audio_url and isinstance(output, str):
+        audio_url = output
+    if isinstance(audio_url, str) and audio_url.strip():
+        normalized["audio_url"] = audio_url
+
+    if isinstance(payload, dict):
+        normalized["raw_keys"] = sorted(payload.keys())
+    return normalized
+
+
 class MediaGenerationAdapter(Protocol):
     """Contract for provider-backed audio generation."""
 
@@ -356,16 +386,15 @@ class _HttpAudioProviderAdapter:
 
         credentials = self._credentials()
         response_payload = self._post_generation_request(credentials=credentials, payload=request_payload)
+        normalized_response = normalize_provider_response_payload(response_payload)
         provider_generation_id = str(
-            response_payload.get("id")
-            or response_payload.get("generation_id")
-            or response_payload.get("prediction", {}).get("id")
+            normalized_response.get("id")
             or f"{self.provider_name}:{request_payload_hash[:16]}"
         )
         audio_path = self._persist_audio_response(
             output_dir=output_dir,
             replay_key=replay_key,
-            response_payload=response_payload,
+            response_payload=normalized_response,
         )
         return ProviderGenerationResult(
             audio_path=str(audio_path),
@@ -380,7 +409,7 @@ class _HttpAudioProviderAdapter:
                 generation_timestamp=generation_timestamp,
                 dry_run=False,
                 extra={
-                    "provider_response_keys": sorted(response_payload.keys()),
+                    "provider_response_keys": normalized_response.get("raw_keys", []),
                     "provider_endpoint": credentials.endpoint,
                 },
             ),
