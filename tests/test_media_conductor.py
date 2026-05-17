@@ -92,6 +92,7 @@ class MediaConductorTests(unittest.TestCase):
                     credits=[{"name": "JRT", "role": "artist"}],
                     rights_metadata={"copyright_owner": "InnovativeArtsInc"},
                 ),
+                "strategy_id": "strategy:studio",
             },
         }
         handlers.update(overrides)
@@ -196,6 +197,7 @@ class MediaConductorTests(unittest.TestCase):
 
     def test_production_mode_requires_concrete_handler_payloads(self) -> None:
         conductor = MediaConductor(paths=self.paths, actor="media-pipeline")
+        conductor.production_mode = True
 
         with self.assertRaisesRegex(MediaConductorError, "strategy_lock"):
             conductor.run(
@@ -238,6 +240,72 @@ class MediaConductorTests(unittest.TestCase):
                 "release_bundle_artifact_ref"
             ],
             "registry://releases/job-123-bundle.json",
+        )
+        self.assertEqual(
+            events["rollout_packaged"]["runtime_payload"]["strategy_id"],
+            "strategy:studio",
+        )
+
+    def test_rollout_package_missing_release_bundle_fails_transition(self) -> None:
+        conductor = MediaConductor(
+            paths=self.paths,
+            actor="media-pipeline",
+            handlers=self._stage_handlers(
+                rollout_package=lambda _: {
+                    "release_bundle_artifact_ref": "registry://releases/job-123-bundle.json"
+                }
+            ),
+        )
+        with self.assertRaisesRegex(MediaConductorError, "release_bundle"):
+            conductor.run(
+                job_id="job-rollout-missing-bundle",
+                track_id="track-abc",
+                input_assets=self._input_assets(),
+                output_assets=self._output_assets(),
+                provenance_refs=self._provenance_refs(),
+                agent_owner="MediaAgent",
+            )
+
+    def test_rollout_package_valid_payload_preserves_scheduler_metadata(self) -> None:
+        conductor = MediaConductor(
+            paths=self.paths,
+            actor="media-pipeline",
+            handlers=self._stage_handlers(
+                rollout_package=lambda _: {
+                    "release_bundle_artifact_ref": "registry://releases/job-123-bundle.json",
+                    "release_bundle": build_release_bundle(
+                        release_id="job-123",
+                        title="Example Release",
+                        artist_name="JRT",
+                        masters=[
+                            {"track_id": "track-abc", "path": "renders/track-abc.wav"}
+                        ],
+                        stems=[],
+                        credits=[{"name": "JRT", "role": "artist"}],
+                        rights_metadata={"copyright_owner": "InnovativeArtsInc"},
+                    ),
+                    "scheduler_plan_id": "plan-123",
+                    "scheduler_provider": "provider-x",
+                    "strategy_id": "strategy:studio",
+                }
+            ),
+        )
+        checkpoint = conductor.run(
+            job_id="job-rollout-valid",
+            track_id="track-abc",
+            input_assets=self._input_assets(),
+            output_assets=self._output_assets(),
+            provenance_refs=self._provenance_refs(),
+            agent_owner="MediaAgent",
+        )
+        rollout_event = next(
+            event
+            for event in checkpoint["media_job_record"]["transition_log"]
+            if event["to_stage"] == "rollout_packaged"
+        )
+        self.assertEqual(
+            rollout_event["runtime_payload"]["scheduler_plan_id"],
+            "plan-123",
         )
 
 

@@ -142,6 +142,7 @@ class MediaConductor:
         self.handlers = handlers or {}
         self.authorization = authorization
         self.ratification = ratification
+        self.production_mode = False
         self.paths.jobs_dir.mkdir(parents=True, exist_ok=True)
         self.paths.checkpoints_dir.mkdir(parents=True, exist_ok=True)
 
@@ -354,14 +355,12 @@ class MediaConductor:
     ) -> dict[str, Any] | None:
         if rollout_payload is None:
             return None
-        return {
-            "release_bundle_validation": rollout_payload.get(
-                "release_bundle_validation", "passed"
-            ),
-            "release_bundle_artifact_ref": rollout_payload.get(
-                "release_bundle_artifact_ref"
-            ),
-        }
+        payload = dict(rollout_payload)
+        payload.setdefault("release_bundle_validation", "passed")
+        payload["release_bundle_artifact_ref"] = rollout_payload.get(
+            "release_bundle_artifact_ref"
+        )
+        return payload
 
     def _validate_release_bundle_payload(self, payload: dict[str, Any]) -> None:
         release_bundle = payload.get("release_bundle")
@@ -375,9 +374,9 @@ class MediaConductor:
                 release_id="validation",
                 title="Validation",
                 artist_name="Validation",
-                masters=[{"path": "validation.wav"}],
+                masters=[{"track_id": "validation", "path": "validation.wav"}],
                 stems=[],
-                credits=[],
+                credits=[{"name": "Validation", "role": "artist"}],
                 rights_metadata={"validation": True},
             )
         )
