@@ -5,12 +5,17 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .adapters import MediaGenerationAdapter, StubGenAudioAdapter
-from .audio_analysis import write_analysis_artifact
 from .adapters import MediaGenerationAdapter, StubGenAudioAdapter, build_media_generation_adapter_from_scheduler
+from .audio_analysis import write_analysis_artifact
+
+
+class GenerationMode(str, Enum):
+    PREVIEW = "preview"
+    FULL = "full"
 
 
 @dataclass(frozen=True)
@@ -23,6 +28,7 @@ class ReplayContract:
     length: int
     tempo: int | None = None
     key: str | None = None
+    generation_mode: GenerationMode = GenerationMode.FULL
 
     def as_payload(self) -> dict[str, Any]:
         return {
@@ -32,6 +38,7 @@ class ReplayContract:
             "length": self.length,
             "tempo": self.tempo,
             "key": self.key,
+            "generation_mode": self.generation_mode.value,
         }
 
     def deterministic_key(self) -> str:
@@ -65,6 +72,7 @@ def generate_music_for_wf005(
     length: int,
     tempo: int | None = None,
     key: str | None = None,
+    generation_mode: GenerationMode | str = GenerationMode.FULL,
     uniqueness_report_ref: str,
     provider: MediaGenerationAdapter | None = None,
     scheduler_decision: dict[str, Any] | None = None,
@@ -72,6 +80,11 @@ def generate_music_for_wf005(
     project_root: str | Path = ".",
 ) -> dict[str, Any]:
     """Callable WF-005 entrypoint that enforces replay and provenance conventions."""
+    generation_mode = GenerationMode(generation_mode)
+    is_preview = generation_mode == GenerationMode.PREVIEW
+    effective_length = min(length, 15) if is_preview else length
+    sample_rate_hz = 16_000 if is_preview else 44_100
+
     replay_contract = ReplayContract(
         prompt=prompt,
         style_profile=style_profile,
@@ -79,11 +92,12 @@ def generate_music_for_wf005(
         length=length,
         tempo=tempo,
         key=key,
+        generation_mode=generation_mode,
     )
     replay_key = replay_contract.deterministic_key()
 
     root = Path(project_root)
-    audio_dir = root / "projects" / "jrt" / "audio" / "generated"
+    audio_dir = root / "projects" / "jrt" / "audio" / "generated" / generation_mode.value
     metadata_dir = root / "projects" / "jrt" / "metadata" / "renders"
     metadata_dir.mkdir(parents=True, exist_ok=True)
     render_record_path = metadata_dir / f"{replay_key}.json"
@@ -103,11 +117,14 @@ def generate_music_for_wf005(
         prompt=prompt,
         style_profile=style_profile,
         seed=seed,
-        length=length,
+        length=effective_length,
         tempo=tempo,
         key=key,
         output_dir=audio_dir,
         replay_key=replay_key,
+        generation_mode=generation_mode.value,
+        sample_rate_hz=sample_rate_hz,
+        visual_quality_tier="low" if is_preview else "high",
     )
 
     analysis_artifact = write_analysis_artifact(
@@ -124,6 +141,7 @@ def generate_music_for_wf005(
         "analysis_artifact": analysis_artifact["artifact_path"],
         "replay_key": replay_key,
         "replayed": False,
+        "generation_mode": generation_mode.value,
     }
 
     render_record = {
@@ -148,7 +166,35 @@ def generate_music_for_wf005(
         "request_payload_hash": provider_result.render_metadata.get("request_payload_hash"),
         "generation_timestamp": provider_result.render_metadata.get("generation_timestamp"),
         "render_metadata": provider_result.render_metadata,
+        "generation_mode": generation_mode.value,
     }
     _append_provenance_if_missing(root / "registry" / "provenance_log.jsonl", provenance_entry)
 
     return response
+
+
+def promote_preview_to_full_render(*, preview_replay_key: str, uniqueness_report_ref: str, project_root: str | Path = ".") -> dict[str, Any]:
+    root = Path(project_root)
+    preview_record = root / "projects" / "jrt" / "metadata" / "renders" / f"{preview_replay_key}.json"
+    if not preview_record.exists():
+        raise FileNotFoundError(f"Preview replay record not found: {preview_record}")
+
+    payload = json.loads(preview_record.read_text(encoding="utf-8"))
+    contract = payload["contract"]
+    if contract.get("generation_mode") != GenerationMode.PREVIEW.value:
+        raise ValueError("Replay contract is not a preview generation")
+
+    result = generate_music_for_wf005(
+        prompt=contract["prompt"],
+        style_profile=contract["style_profile"],
+        seed=contract["seed"],
+        length=contract["length"],
+        tempo=contract.get("tempo"),
+        key=contract.get("key"),
+        generation_mode=GenerationMode.FULL,
+        uniqueness_report_ref=uniqueness_report_ref,
+        project_root=root,
+    )
+    result["promoted_from_replay_key"] = preview_replay_key
+    result["preview_render_record"] = str(preview_record)
+    return result
