@@ -218,3 +218,23 @@ Documentation updates are welcome, but policy and governance files have differen
 - Site: [adaad.pro](http://adaad.pro)
 
 *Powered by ADAAD-Agent | InnovativeAI-adaad © 2026*
+
+## Runtime composition facade
+Use `services.integration.facade.build_runtime_context(...)` to centralize dependency construction for gatekeeper, generation/release adapters, and control-plane services.
+
+Minimal example:
+```python
+from services.integration.facade import build_runtime_config_from_env, build_runtime_context
+
+context = build_runtime_context(build_runtime_config_from_env(repo_root="."))
+conductor = context.create_media_conductor(actor="demo-cli")
+```
+
+Production example:
+```python
+from services.integration.facade import build_runtime_config_from_env, build_runtime_context
+
+config = build_runtime_config_from_env(repo_root="/srv/innovative-arts")
+context = build_runtime_context(config)  # raises RuntimeDependencyValidationError on missing env/policy files
+conductor = context.create_media_conductor(actor="production-runner")
+```

@@ -7,7 +7,7 @@ import json
 from pathlib import Path
 from typing import Any
 
-from services.media_conductor import MediaConductor, MediaConductorPaths
+from services.integration.facade import build_runtime_config_from_env, build_runtime_context
 from services.media_generation.ip_lifecycle import (
     IPGuardrailBlockedError,
     audio_fingerprint_for_path,
@@ -29,18 +29,6 @@ def _parse_style_profile(raw: str) -> str | dict[str, Any]:
 def _asset_ref(asset_type: str, path: str) -> dict[str, str]:
     return {"asset_id": f"{asset_type}:{Path(path).name}", "path": path}
 
-
-def _media_conductor_paths(root: Path) -> MediaConductorPaths:
-    schema_path = root / "projects/jrt/metadata/schema/media_job.schema.json"
-    if not schema_path.exists():
-        schema_path = Path(__file__).resolve().parents[2] / "projects/jrt/metadata/schema/media_job.schema.json"
-    jobs_dir = root / "projects/jrt/metadata/jobs"
-    return MediaConductorPaths(
-        repo_root=root,
-        jobs_dir=jobs_dir,
-        schema_path=schema_path,
-        checkpoints_dir=jobs_dir / "checkpoints",
-    )
 
 
 def run_autonomous_generation_lifecycle(
@@ -66,6 +54,7 @@ def run_autonomous_generation_lifecycle(
     succeeded media job.
     """
     root = Path(project_root)
+    context = build_runtime_context(build_runtime_config_from_env(repo_root=root))
     media_provenance_refs = list(provenance_refs or [])
 
     pre_decision = run_pre_generation_uniqueness_gate(
@@ -110,10 +99,7 @@ def run_autonomous_generation_lifecycle(
     post_ref = decision_provenance_ref(post_decision, ref_type="ip_post_generation_decision")
     media_provenance_refs.append(post_ref)
 
-    conductor = MediaConductor(
-        paths=_media_conductor_paths(root),
-        actor="autonomous-run-cli",
-    )
+    conductor = context.create_media_conductor(actor="autonomous-run-cli")
     conductor_checkpoint = conductor.run(
         job_id=job_id,
         track_id=track_id,

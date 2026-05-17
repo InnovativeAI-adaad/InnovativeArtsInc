@@ -381,3 +381,17 @@ Every workflow execution appends to `AGENT_LOG.md`:
 
 *Changelog: Terminology normalization — verified workflow step names match `AUTONOMY.md` §1 canonical action identifiers.*
 
+
+## Composition facade wiring
+All CLIs/pipelines should bootstrap dependencies through `services.integration.facade`.
+
+Minimal bootstrap:
+```python
+context = build_runtime_context(build_runtime_config_from_env(repo_root="."))
+```
+
+Production bootstrap:
+```python
+context = build_runtime_context(build_runtime_config_from_env(repo_root="/srv/innovative-arts"))
+# Fails closed with explicit missing dependency messages before execution.
+```
