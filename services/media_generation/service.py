@@ -88,13 +88,11 @@ def generate_music_for_wf005(
     replay_contract = ReplayContract(
         prompt=prompt,
         style_profile=style_profile,
-        seed=seed,
-        length=length,
+        duration=length,
         tempo=tempo,
         key=key,
         generation_mode=generation_mode,
     )
-    replay_key = replay_contract.deterministic_key()
 
     root = Path(project_root)
     audio_dir = root / "projects" / "jrt" / "audio" / "generated" / generation_mode.value
@@ -127,6 +125,8 @@ def generate_music_for_wf005(
         visual_quality_tier="low" if is_preview else "high",
     )
 
+    visual_result = generate_visual_params(scene_contract)
+
     analysis_artifact = write_analysis_artifact(
         audio_path=provider_result.audio_path,
         job_id=replay_key,
@@ -140,12 +140,15 @@ def generate_music_for_wf005(
         "uniqueness_report_ref": uniqueness_report_ref,
         "analysis_artifact": analysis_artifact["artifact_path"],
         "replay_key": replay_key,
+        "scene_contract": scene_contract.as_payload(),
+        "visual_request": visual_result["visual_request"],
+        "visual_request_payload_hash": visual_result["visual_request_payload_hash"],
         "replayed": False,
         "generation_mode": generation_mode.value,
     }
 
     render_record = {
-        "contract": replay_contract.as_payload(),
+        "contract": scene_contract.as_payload(),
         "replay_key": replay_key,
         "result": response,
     }
@@ -153,7 +156,7 @@ def generate_music_for_wf005(
 
     provenance_entry = {
         "workflow": "WF-005",
-        "stage": "generate_music",
+        "stage": "generate_scene_media",
         "replay_key": replay_key,
         "audio_path": provider_result.audio_path,
         "provider_generation_id": provider_result.provider_generation_id,
@@ -163,7 +166,8 @@ def generate_music_for_wf005(
         "provider_name": provider_result.render_metadata.get("provider_name"),
         "model": provider_result.render_metadata.get("model"),
         "model_version": provider_result.render_metadata.get("model_version"),
-        "request_payload_hash": provider_result.render_metadata.get("request_payload_hash"),
+        "audio_request_payload_hash": provider_result.render_metadata.get("request_payload_hash"),
+        "visual_request_payload_hash": visual_result["visual_request_payload_hash"],
         "generation_timestamp": provider_result.render_metadata.get("generation_timestamp"),
         "render_metadata": provider_result.render_metadata,
         "generation_mode": generation_mode.value,

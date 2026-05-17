@@ -14,6 +14,7 @@ from .service import GenerationMode, ReplayContract, generate_music_for_wf005, p
 
 __all__ = [
     "AudioMetrics",
+    "IPGuardrailBlockedError",
     "MediaGenerationAdapter",
     "ProviderGenerationResult",
     "GenerationMode",
@@ -22,6 +23,7 @@ __all__ = [
     "SunoAdapter",
     "UdioAdapter",
     "StubGenAudioAdapter",
+    "SunoAdapter",
     "analyze_audio_file",
     "analyze_pcm_wav",
     "generate_music_for_wf005",
@@ -35,4 +37,5 @@ __all__ = [
     "promote_preview_to_full_render",
     "run_post_generation_similarity_audit",
     "run_pre_generation_uniqueness_gate",
+    "write_analysis_artifact",
 ]
