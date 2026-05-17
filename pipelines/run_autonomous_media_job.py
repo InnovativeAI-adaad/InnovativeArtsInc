@@ -24,6 +24,7 @@ if str(_REPO_ROOT) not in sys.path:
     sys.path.insert(0, str(_REPO_ROOT))
 
 from core.agents.ip_agent.agent import run_similarity_audit
+from core.gatekeeper.entry_gate import enforce_gate
 from pipelines.validate_media_outputs import RuntimeRetryPolicy, orchestrate_remediation
 from services.creative_planner.planner import (
     ArtistProfile,
@@ -713,11 +714,24 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         default=str(_REPO_ROOT),
         help="Repository root for policy/artifact paths",
     )
+    parser.add_argument(
+        "--gate-payload",
+        default=os.getenv("IAI_GATE_PAYLOAD_JSON", "{}"),
+        help="JSON object or @path with authorization and ratification payloads",
+    )
     return parser.parse_args(argv)
 
 
 def main(argv: list[str] | None = None) -> int:
     args = parse_args(argv)
+    try:
+        gate_payload = _parse_json_arg(args.gate_payload, field_name="gate_payload")
+    except ValueError:
+        gate_payload = {}
+    gate = enforce_gate("run_autonomous_media_job", "autonomous-media-job-runner", gate_payload)
+    if not gate["allowed"]:
+        print(json.dumps({"status": "denied", "gate": gate}, indent=2, sort_keys=True), file=sys.stderr)
+        return 3
     seed: int | str | None = None
     if args.seed is not None:
         seed = int(args.seed) if str(args.seed).isdigit() else str(args.seed)
