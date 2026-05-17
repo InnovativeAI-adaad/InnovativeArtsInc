@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import base64
 import hashlib
+import io
 import json
 import math
 import struct
@@ -27,6 +28,39 @@ def _canonical_digest(payload: dict[str, Any]) -> str:
 
 def _truthy_env(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
+
+
+def _deterministic_stub_wav_bytes(*, entropy_source: str, duration_seconds: int) -> bytes:
+    entropy_digest = hashlib.sha256(entropy_source.encode("utf-8")).digest()
+    entropy_int = int.from_bytes(entropy_digest[:8], "little")
+
+    sample_rate_hz = 44_100
+    frame_count = sample_rate_hz * duration_seconds
+    amplitude = 0.2
+    base_frequency = 180 + (entropy_digest[8] % 220)
+    phase_offset = (entropy_int % sample_rate_hz) / sample_rate_hz
+
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as wav:
+        wav.setnchannels(2)
+        wav.setsampwidth(2)
+        wav.setframerate(sample_rate_hz)
+        frames = bytearray()
+
+        lcg_state = entropy_int or 1
+        for frame_idx in range(frame_count):
+            lcg_state = (1664525 * lcg_state + 1013904223) & 0xFFFFFFFF
+            jitter = ((lcg_state >> 16) & 0xFF) / 255.0 - 0.5
+            t = (frame_idx / sample_rate_hz) + phase_offset
+            sample_value = math.sin(2 * math.pi * (base_frequency + (jitter * 2.5)) * t)
+            sample = int(32767 * amplitude * sample_value)
+            frames.extend(struct.pack("<hh", sample, sample))
+
+        wav.writeframes(bytes(frames))
+
+    wav_bytes = buf.getvalue()
+    marker = f"STUB_AUDIO|entropy={entropy_digest.hex()}".encode("utf-8")
+    return wav_bytes + marker
 
 
 @dataclass(frozen=True)
@@ -168,19 +202,6 @@ class StubGenAudioAdapter:
             "key": key,
         }
         provider_generation_id = f"{self.provider_name}:{_canonical_digest(render_settings)[:16]}"
-        sample_rate_hz = 44_100
-        duration_seconds = max(1, min(int(length), 5))
-        frame_count = sample_rate_hz * duration_seconds
-        amplitude = 0.2
-        with wave.open(str(audio_path), "wb") as wav:
-            wav.setnchannels(2)
-            wav.setsampwidth(2)
-            wav.setframerate(sample_rate_hz)
-            frames = bytearray()
-            for frame_idx in range(frame_count):
-                sample = int(32767 * amplitude * math.sin(2 * math.pi * 220 * (frame_idx / sample_rate_hz)))
-                frames.extend(struct.pack("<hh", sample, sample))
-            wav.writeframes(bytes(frames))
         render_settings = _build_render_settings(
             prompt=prompt,
             style_profile=style_profile,
@@ -196,10 +217,21 @@ class StubGenAudioAdapter:
         )
         request_payload_hash = _canonical_digest(request_payload)
         provider_generation_id = f"{self.provider_name}:{request_payload_hash[:16]}"
+        entropy_source = json.dumps(
+            {
+                "provider": self.provider_name,
+                "provider_generation_id": provider_generation_id,
+                "replay_key": replay_key,
+                "seed": seed,
+                "job_id": replay_key,
+                "request_payload_hash": request_payload_hash,
+            },
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        duration_seconds = max(1, min(int(length), 5))
         audio_path.write_bytes(
-            f"STUB_AUDIO|provider={self.provider_name}|generation={provider_generation_id}|replay={replay_key}".encode(
-                "utf-8"
-            )
+            _deterministic_stub_wav_bytes(entropy_source=entropy_source, duration_seconds=duration_seconds)
         )
 
         return ProviderGenerationResult(
