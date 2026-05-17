@@ -12,6 +12,7 @@ from typing import Any
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _METRICS_PATH = _REPO_ROOT / "registry" / "metrics.jsonl"
+_POLICY_CONFIG_PATH = _REPO_ROOT / "config" / "generation_policy.json"
 
 
 @dataclass(frozen=True)
@@ -42,6 +43,67 @@ def _utc_now_iso() -> str:
         .replace("+00:00", "Z")
     )
 
+
+
+
+def load_generation_policy(config_path: Path | None = None) -> dict[str, Any]:
+    """Load generation policy configuration from disk."""
+    path = config_path or _POLICY_CONFIG_PATH
+    with path.open("r", encoding="utf-8") as handle:
+        return json.load(handle)
+
+
+def _estimate_output_footprint(candidate: CandidateGenerationPlan) -> tuple[int, float]:
+    """Estimate output tokens and seconds from latency and quality heuristics."""
+    est_seconds = max(candidate.expected_latency_ms / 1000.0, 0.5)
+    est_tokens = max(1, int(est_seconds * 180 * max(candidate.quality_likelihood, 0.35)))
+    return est_tokens, est_seconds
+
+
+def _predict_candidate_cost(candidate: CandidateGenerationPlan, pricing_table: dict[str, Any]) -> float:
+    key = f"{candidate.provider}:{candidate.model}"
+    pricing = pricing_table.get(key) or {}
+    per_1k_tokens = float(pricing.get("per_1k_tokens", 0.0) or 0.0)
+    per_second = float(pricing.get("per_second", 0.0) or 0.0)
+    est_tokens, est_seconds = _estimate_output_footprint(candidate)
+    predicted = (est_tokens / 1000.0) * per_1k_tokens + (est_seconds * per_second)
+    if predicted <= 0:
+        predicted = float(candidate.estimated_cost_usd)
+    return round(predicted, 6)
+
+
+def resolve_policy_candidate(
+    *,
+    candidate_plans: list[CandidateGenerationPlan],
+    policy_tier: str,
+    policy: dict[str, Any],
+) -> CandidateGenerationPlan:
+    """Choose the lowest-cost policy-compliant candidate."""
+    tiers = policy.get("tiers") or {}
+    tier = tiers.get(policy_tier) or tiers.get("preview") or {}
+    allowed_providers = set(tier.get("allowed_providers") or [])
+    max_render = float(tier.get("max_cost_per_render_usd", 9999.0))
+    max_minute = float(tier.get("max_cost_per_minute_usd", 9999.0))
+    pricing = policy.get("pricing_usd") or {}
+
+    valid: list[tuple[float, CandidateGenerationPlan]] = []
+    for candidate in candidate_plans:
+        if allowed_providers and candidate.provider not in allowed_providers:
+            continue
+        predicted = _predict_candidate_cost(candidate, pricing)
+        _, seconds = _estimate_output_footprint(candidate)
+        per_minute = predicted / max(seconds / 60.0, 1e-6)
+        if predicted <= max_render and per_minute <= max_minute:
+            valid.append((predicted, candidate))
+
+    if not valid:
+        return min(
+            candidate_plans,
+            key=lambda c: _predict_candidate_cost(c, pricing),
+        )
+
+    valid.sort(key=lambda row: (row[0], -row[1].quality_likelihood, row[1].expected_latency_ms, row[1].plan_id))
+    return valid[0][1]
 
 def score_candidate_plan(
     candidate: CandidateGenerationPlan,
@@ -149,6 +211,8 @@ def select_generation_plan(
     candidate_plans: list[CandidateGenerationPlan],
     campaign_budget_tier: str,
     release_urgency: str,
+    policy_tier: str = "preview",
+    policy: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Rank candidates, pick primary plan, and return scheduler decision artifact."""
     if not candidate_plans:
@@ -164,7 +228,13 @@ def select_generation_plan(
         for plan in candidate_plans
     ]
     ranked = sorted(scored, key=lambda item: item.score, reverse=True)
-    selected = ranked[0]
+    active_policy = policy or load_generation_policy()
+    policy_selected = resolve_policy_candidate(
+        candidate_plans=candidate_plans,
+        policy_tier=policy_tier,
+        policy=active_policy,
+    )
+    selected = next((item for item in ranked if item.candidate.plan_id == policy_selected.plan_id), ranked[0])
     preset = resolve_model_provider_presets(
         campaign_budget_tier=campaign_budget_tier,
         release_urgency=release_urgency,
@@ -179,6 +249,10 @@ def select_generation_plan(
         "selected_model": selected.candidate.model,
         "selected_model_version": selected.candidate.model_version,
         "selected_score": selected.score,
+        "estimated_cost": _predict_candidate_cost(selected.candidate, active_policy.get("pricing_usd") or {}),
+        "policy_tier": policy_tier,
+        "policy_version": active_policy.get("policy_version", "unknown"),
+        "selected_by_policy": True,
         "provider_model_preset": preset,
         "ranking": [
             {
@@ -297,6 +371,31 @@ def select_fallback_provider_model(
     return None
 
 
+
+
+def next_retry_target(
+    *,
+    scheduler_decision: dict[str, Any],
+    attempted_targets: list[tuple[str, str]],
+    failure_type: str,
+    attempt_number: int,
+) -> dict[str, Any] | None:
+    """Return the next retry target honoring policy retry limits."""
+    retry = (scheduler_decision.get("policy") or {}).get("retry") or {}
+    max_attempts = int(retry.get("max_attempts", 3))
+    retryable = set(retry.get("retryable_error_types") or ["timeout", "transient", "provider_error"])
+    if failure_type not in retryable or attempt_number >= max_attempts:
+        return None
+
+    fallback = select_fallback_provider_model(
+        scheduler_decision=scheduler_decision,
+        transient_error=True,
+        attempted_targets=set(attempted_targets),
+    )
+    if fallback is None:
+        return None
+    return {"attempt": attempt_number + 1, "max_attempts": max_attempts, **fallback}
+
 def schedule_generation_job(
     *,
     job_id: str,
@@ -350,12 +449,16 @@ def schedule_generation_job(
         for index, target in enumerate(targets)
     ]
 
+    policy_tier = str((job_metadata or {}).get("policy_tier") or "preview")
+
     decision, metadata = run_scheduler_hook(
         job_id=job_id,
         candidate_plans=candidate_plans,
         campaign_budget_tier=campaign_budget_tier,
         release_urgency=release_urgency,
         job_metadata=job_metadata or {},
+        policy_tier=policy_tier,
+        policy=load_generation_policy(),
     )
     decision["runtime_policy_loaded"] = bool(runtime_policy)
     decision["creative_policy_loaded"] = bool(creative_policy)
@@ -413,6 +516,8 @@ def run_scheduler_hook(
     campaign_budget_tier: str,
     release_urgency: str,
     job_metadata: dict[str, Any],
+    policy_tier: str = "preview",
+    policy: dict[str, Any] | None = None,
 ) -> tuple[dict[str, Any], dict[str, Any]]:
     """Release-pipeline hook that selects a plan and persists scheduler rationale metadata."""
     started_at = time.perf_counter()
@@ -421,6 +526,8 @@ def run_scheduler_hook(
         candidate_plans=candidate_plans,
         campaign_budget_tier=campaign_budget_tier,
         release_urgency=release_urgency,
+        policy_tier=policy_tier,
+        policy=policy,
     )
     elapsed_ms = int((time.perf_counter() - started_at) * 1000)
     provenance_ref = (
@@ -433,4 +540,5 @@ def run_scheduler_hook(
         provenance_ref=provenance_ref,
     )
     metadata.setdefault("scheduler", {})["decision_latency_ms"] = elapsed_ms
+    decision["policy"] = policy or load_generation_policy()
     return decision, metadata
