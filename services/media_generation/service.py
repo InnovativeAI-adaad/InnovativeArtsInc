@@ -13,9 +13,19 @@ from .adapters import MediaGenerationAdapter, StubGenAudioAdapter, build_media_g
 from .audio_analysis import write_analysis_artifact
 
 
-class GenerationMode(str, Enum):
-    PREVIEW = "preview"
-    FULL = "full"
+def _load_brand_profile(
+    *, brand_profile_id: str | None, project_root: Path
+) -> tuple[dict[str, Any] | None, str | None]:
+    if not brand_profile_id:
+        return None, None
+    profile_path = project_root / "registry" / "style_memory" / f"{brand_profile_id}.json"
+    if not profile_path.exists():
+        raise ValueError(f"Unknown brand_profile_id '{brand_profile_id}' at {profile_path}")
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    profile_hash = hashlib.sha256(
+        json.dumps(profile, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return profile, profile_hash
 
 
 @dataclass(frozen=True)
@@ -28,7 +38,8 @@ class ReplayContract:
     length: int
     tempo: int | None = None
     key: str | None = None
-    generation_mode: GenerationMode = GenerationMode.FULL
+    brand_profile_id: str | None = None
+    brand_profile_hash: str | None = None
 
     def as_payload(self) -> dict[str, Any]:
         return {
@@ -38,7 +49,8 @@ class ReplayContract:
             "length": self.length,
             "tempo": self.tempo,
             "key": self.key,
-            "generation_mode": self.generation_mode.value,
+            "brand_profile_id": self.brand_profile_id,
+            "brand_profile_hash": self.brand_profile_hash,
         }
 
     def deterministic_key(self) -> str:
@@ -72,7 +84,7 @@ def generate_music_for_wf005(
     length: int,
     tempo: int | None = None,
     key: str | None = None,
-    generation_mode: GenerationMode | str = GenerationMode.FULL,
+    brand_profile_id: str | None = None,
     uniqueness_report_ref: str,
     provider: MediaGenerationAdapter | None = None,
     scheduler_decision: dict[str, Any] | None = None,
@@ -80,22 +92,19 @@ def generate_music_for_wf005(
     project_root: str | Path = ".",
 ) -> dict[str, Any]:
     """Callable WF-005 entrypoint that enforces replay and provenance conventions."""
-    generation_mode = GenerationMode(generation_mode)
-    is_preview = generation_mode == GenerationMode.PREVIEW
-    effective_length = min(length, 15) if is_preview else length
-    sample_rate_hz = 16_000 if is_preview else 44_100
-
+    root = Path(project_root)
+    brand_profile, brand_profile_hash = _load_brand_profile(brand_profile_id=brand_profile_id, project_root=root)
     replay_contract = ReplayContract(
         prompt=prompt,
         style_profile=style_profile,
         duration=length,
         tempo=tempo,
         key=key,
-        generation_mode=generation_mode,
+        brand_profile_id=brand_profile_id,
+        brand_profile_hash=brand_profile_hash,
     )
-
-    root = Path(project_root)
-    audio_dir = root / "projects" / "jrt" / "audio" / "generated" / generation_mode.value
+    replay_key = replay_contract.deterministic_key()
+    audio_dir = root / "projects" / "jrt" / "audio" / "generated"
     metadata_dir = root / "projects" / "jrt" / "metadata" / "renders"
     metadata_dir.mkdir(parents=True, exist_ok=True)
     render_record_path = metadata_dir / f"{replay_key}.json"
@@ -118,6 +127,9 @@ def generate_music_for_wf005(
         length=effective_length,
         tempo=tempo,
         key=key,
+        brand_profile=brand_profile,
+        brand_profile_id=brand_profile_id,
+        brand_profile_hash=brand_profile_hash,
         output_dir=audio_dir,
         replay_key=replay_key,
         generation_mode=generation_mode.value,
@@ -140,9 +152,8 @@ def generate_music_for_wf005(
         "uniqueness_report_ref": uniqueness_report_ref,
         "analysis_artifact": analysis_artifact["artifact_path"],
         "replay_key": replay_key,
-        "scene_contract": scene_contract.as_payload(),
-        "visual_request": visual_result["visual_request"],
-        "visual_request_payload_hash": visual_result["visual_request_payload_hash"],
+        "brand_profile_id": brand_profile_id,
+        "brand_profile_hash": brand_profile_hash,
         "replayed": False,
         "generation_mode": generation_mode.value,
     }
@@ -169,6 +180,8 @@ def generate_music_for_wf005(
         "audio_request_payload_hash": provider_result.render_metadata.get("request_payload_hash"),
         "visual_request_payload_hash": visual_result["visual_request_payload_hash"],
         "generation_timestamp": provider_result.render_metadata.get("generation_timestamp"),
+        "brand_profile_id": brand_profile_id,
+        "brand_profile_hash": brand_profile_hash,
         "render_metadata": provider_result.render_metadata,
         "generation_mode": generation_mode.value,
     }

@@ -223,9 +223,58 @@ class MediaGenerationServiceTests(unittest.TestCase):
             row = json.loads((root / "registry" / "provenance_log.jsonl").read_text(encoding="utf-8").strip())
             self.assertEqual(row["provider_name"], "suno")
             self.assertEqual(row["model"], "chirp-v4")
-            self.assertEqual(row["audio_request_payload_hash"], result["render_metadata"]["request_payload_hash"])
-            self.assertEqual(row["visual_request_payload_hash"], result["visual_request_payload_hash"])
-            self.assertIn("scene_hash", result["scene_contract"])
+            self.assertEqual(row["request_payload_hash"], result["render_metadata"]["request_payload_hash"])
+    def test_brand_profile_is_deterministic_for_same_seed(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "registry" / "style_memory").mkdir(parents=True, exist_ok=True)
+            source = Path("registry/style_memory/noir_baseline.json")
+            (root / "registry" / "style_memory" / "noir_baseline.json").write_text(source.read_text(encoding="utf-8"))
+
+            params = {
+                "prompt": "Slow-burn noir cue",
+                "style_profile": "jrt.noir.v1",
+                "seed": 11,
+                "length": 25,
+                "brand_profile_id": "noir_baseline",
+                "uniqueness_report_ref": "registry/reports/uniqueness-bp-001.json",
+                "project_root": root,
+            }
+            first = generate_music_for_wf005(**params)
+            second = generate_music_for_wf005(**params)
+            self.assertEqual(first["replay_key"], second["replay_key"])
+            self.assertEqual(first["brand_profile_hash"], second["brand_profile_hash"])
+            self.assertEqual(first["provider_generation_id"], second["provider_generation_id"])
+
+    def test_changing_brand_profile_changes_output_contract(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / "registry" / "style_memory").mkdir(parents=True, exist_ok=True)
+            for profile in ("noir_baseline", "neon_pulse"):
+                source = Path(f"registry/style_memory/{profile}.json")
+                (root / "registry" / "style_memory" / f"{profile}.json").write_text(source.read_text(encoding="utf-8"))
+
+            first = generate_music_for_wf005(
+                prompt="Pulse-driven hybrid cue",
+                style_profile="jrt.hybrid.v1",
+                seed=333,
+                length=18,
+                brand_profile_id="noir_baseline",
+                uniqueness_report_ref="registry/reports/uniqueness-bp-101.json",
+                project_root=root,
+            )
+            second = generate_music_for_wf005(
+                prompt="Pulse-driven hybrid cue",
+                style_profile="jrt.hybrid.v1",
+                seed=333,
+                length=18,
+                brand_profile_id="neon_pulse",
+                uniqueness_report_ref="registry/reports/uniqueness-bp-102.json",
+                project_root=root,
+            )
+            self.assertNotEqual(first["brand_profile_hash"], second["brand_profile_hash"])
+            self.assertNotEqual(first["replay_key"], second["replay_key"])
+            self.assertNotEqual(first["provider_generation_id"], second["provider_generation_id"])
 
     def test_live_provider_adapter_requires_environment_credentials(self) -> None:
         previous_key = os.environ.pop("SUNO_API_KEY", None)
