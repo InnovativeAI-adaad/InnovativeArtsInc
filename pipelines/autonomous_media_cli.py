@@ -10,6 +10,7 @@ import sys
 from pathlib import Path
 from typing import Any
 
+from core.gatekeeper.entry_gate import enforce_gate
 from services.media_conductor.service import MediaConductorError, run_media_conductor
 
 
@@ -37,6 +38,7 @@ def _add_common_run_args(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--job-id", default=_default_job_id(), help="Media job identifier")
     parser.add_argument("--track-id", default=_default_track_id(), help="Canonical track identifier")
     parser.add_argument("--actor", default=os.getenv("IAI_MEDIA_ACTOR", "media-conductor"), help="Actor recorded in transition history")
+    parser.add_argument("--gate-payload", default=os.getenv("IAI_GATE_PAYLOAD_JSON", "{}"), help="JSON object or path with authorization and ratification payloads")
     parser.add_argument("--agent-owner", default=os.getenv("IAI_AGENT_OWNER", "MediaAgent"), help="Agent owner recorded on emitted job")
     parser.add_argument("--attempt", type=int, default=int(os.getenv("IAI_MEDIA_ATTEMPT", "1")), help="Attempt number")
     parser.add_argument(
@@ -86,6 +88,10 @@ def _resolve_run_payload(args: argparse.Namespace) -> dict[str, Any]:
 
 
 def _cmd_dry_run(args: argparse.Namespace) -> int:
+    decision = enforce_gate("autonomous_media_cli.dry_run", args.actor, _load_json_arg(args.gate_payload))
+    if not decision["allowed"]:
+        print(json.dumps({"status": "denied", "gate": decision}, indent=2, sort_keys=True), file=sys.stderr)
+        return 3
     payload = _resolve_run_payload(args)
     schema_path = Path(payload["repo_root"]) / "projects" / "jrt" / "metadata" / "schema" / "media_job.schema.json"
     if not schema_path.exists():
@@ -108,6 +114,10 @@ def _cmd_dry_run(args: argparse.Namespace) -> int:
 
 
 def _cmd_run(args: argparse.Namespace) -> int:
+    decision = enforce_gate("autonomous_media_cli.run", args.actor, _load_json_arg(args.gate_payload))
+    if not decision["allowed"]:
+        print(json.dumps({"status": "denied", "gate": decision}, indent=2, sort_keys=True), file=sys.stderr)
+        return 3
     payload = _resolve_run_payload(args)
     if args.require_agent_enabled and os.getenv("AGENT_ENABLED", "true").lower() != "true":
         print("ERROR: AGENT_ENABLED is not true; refusing production run.", file=sys.stderr)

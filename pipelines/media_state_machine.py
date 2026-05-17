@@ -12,6 +12,8 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from typing import Any
 
+from core.gatekeeper.entry_gate import enforce_gate
+
 MEDIA_STAGES: tuple[str, ...] = (
     "draft_lyrics",
     "refined_lyrics",
@@ -201,3 +203,25 @@ def transition_media_job(
 
     new_record.setdefault("transition_log", []).append(event)
     return new_record
+
+
+def transition_media_job_with_gate(
+    media_job_record: dict,
+    to_stage: str,
+    actor: str,
+    gate_payload: dict[str, Any],
+    timestamp: str | None = None,
+    runtime_payload: dict[str, Any] | None = None,
+) -> dict[str, Any]:
+    decision = enforce_gate(f"media_state_machine.transition.{to_stage}", actor, gate_payload)
+    if not decision["allowed"]:
+        return {"status": "denied", "gate": decision}
+
+    transitioned = transition_media_job(
+        media_job_record=media_job_record,
+        to_stage=to_stage,
+        actor=actor,
+        timestamp=timestamp,
+        runtime_payload=runtime_payload,
+    )
+    return {"status": "allowed", "record": transitioned, "gate": decision}

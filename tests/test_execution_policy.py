@@ -6,6 +6,8 @@ from hashlib import sha256
 from pathlib import Path
 
 from core.agents.execution_policy import execute_with_retry_policy
+from core.gatekeeper.entry_gate import enforce_gate
+from pipelines.media_state_machine import initialize_media_job_record, transition_media_job_with_gate
 
 
 def _write_config(path: Path) -> None:
@@ -211,3 +213,17 @@ def test_level_3_action_with_valid_ratification_and_authorization_runs(
 
     assert result["ok"] is True
     assert runner_calls["count"] == 1
+
+
+def test_gate_wrapper_denial_shape_is_consistent(monkeypatch) -> None:
+    monkeypatch.setenv("ADAAD_AUTHORIZATION_HMAC_KEY", "auth-key")
+    monkeypatch.setenv("ADAAD_RATIFICATION_HMAC_KEY", "ratify-key")
+
+    direct = enforce_gate("run_autonomous_media_job", "runner", {})
+    record = initialize_media_job_record("job-1", "runner")
+    transition = transition_media_job_with_gate(record, "refined_lyrics", "runner", {})
+
+    assert direct["allowed"] is False
+    assert direct["reason_code"] == "AUTHORIZATION_DENIED"
+    assert transition["status"] == "denied"
+    assert transition["gate"]["reason_code"] == "AUTHORIZATION_DENIED"
