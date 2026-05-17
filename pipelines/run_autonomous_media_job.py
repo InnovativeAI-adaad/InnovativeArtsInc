@@ -32,6 +32,7 @@ from services.creative_planner.planner import (
 )
 from services.media_conductor.service import MediaConductor, MediaConductorPaths
 from services.media_generation.service import generate_music_for_wf005
+from services.release_pipeline.service import build_release_bundle, write_release_bundle
 from services.release_pipeline.generation_scheduler import schedule_generation_job
 
 
@@ -480,6 +481,48 @@ def run_autonomous_media_job(
             and validation_results["all_required_checks_passed"]
         )
 
+        release_bundle = build_release_bundle(
+            release_id=request.job_id,
+            title=str(request.creative_brief.get("title") or request.track_id),
+            artist_name=str(
+                request.artist_profile.get("artist_name")
+                or request.artist_profile.get("name")
+                or "Unknown Artist"
+            ),
+            masters=[
+                {
+                    "track_id": request.track_id,
+                    "path": str(audio_path.relative_to(root))
+                    if audio_path.is_relative_to(root)
+                    else str(audio_path),
+                }
+            ],
+            stems=[],
+            credits=[
+                {
+                    "name": str(
+                        request.artist_profile.get("artist_name")
+                        or request.artist_profile.get("name")
+                        or "Unknown Artist"
+                    ),
+                    "role": "artist",
+                }
+            ],
+            rights_metadata={
+                "copyright_owner": str(
+                    request.artist_profile.get("rights_owner")
+                    or request.artist_profile.get("artist_name")
+                    or request.artist_profile.get("name")
+                    or "Unknown Artist"
+                ),
+                "scheduler_plan_id": str(scheduler_decision["selected_plan_id"]),
+                "scheduler_provider": str(scheduler_decision["selected_provider"]),
+                "scheduler_model": str(scheduler_decision["selected_model"]),
+            },
+        )
+        release_bundle_path = write_release_bundle(release_bundle, repo_root=root)
+        release_bundle_artifact_ref = str(release_bundle_path.relative_to(root))
+
         conductor = MediaConductor(
             paths=MediaConductorPaths.from_repo_root(root),
             actor="autonomous-media-job-cli",
@@ -497,6 +540,14 @@ def run_autonomous_media_job(
                         1 - float(post_generation_gate["max_similarity"]), 6
                     ),
                     "uniqueness_validation_time_ms": 0,
+                },
+                "rollout_package": lambda _: {
+                    "release_bundle_artifact_ref": release_bundle_artifact_ref,
+                    "release_bundle": release_bundle,
+                    "scheduler_plan_id": scheduler_decision["selected_plan_id"],
+                    "scheduler_provider": scheduler_decision["selected_provider"],
+                    "scheduler_model": scheduler_decision["selected_model"],
+                    "strategy_id": prompt_plan.strategy_id,
                 },
             },
         )
