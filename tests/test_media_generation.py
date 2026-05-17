@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import tempfile
@@ -75,6 +76,38 @@ class MediaGenerationServiceTests(unittest.TestCase):
                 if line.strip()
             ]
             self.assertEqual(len(provenance_rows), 1)
+
+
+    def test_stub_generations_vary_with_seed_and_job_context(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            first = generate_music_for_wf005(
+                prompt="Minimal synth pulse",
+                style_profile="jrt.synth.v1",
+                seed=100,
+                length=20,
+                tempo=120,
+                key="A minor",
+                uniqueness_report_ref="registry/reports/uniqueness-101.json",
+                project_root=root,
+            )
+            second = generate_music_for_wf005(
+                prompt="Minimal synth pulse",
+                style_profile="jrt.synth.v1",
+                seed=101,
+                length=20,
+                tempo=120,
+                key="A minor",
+                uniqueness_report_ref="registry/reports/uniqueness-102.json",
+                project_root=root,
+            )
+
+            first_digest = hashlib.sha256(Path(first["audio_path"]).read_bytes()).hexdigest()
+            second_digest = hashlib.sha256(Path(second["audio_path"]).read_bytes()).hexdigest()
+
+            self.assertNotEqual(first["replay_key"], second["replay_key"])
+            self.assertNotEqual(first["provider_generation_id"], second["provider_generation_id"])
+            self.assertNotEqual(first_digest, second_digest)
 
     def test_scheduler_decision_can_select_dry_run_provider_adapter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
