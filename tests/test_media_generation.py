@@ -7,9 +7,8 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from services.media_generation import SunoAdapter, generate_music_for_wf005
-from services.media_generation.adapters import normalize_provider_response_payload
 from services.media_generation import GenerationMode, SunoAdapter, generate_music_for_wf005, promote_preview_to_full_render
+from services.media_generation.adapters import normalize_provider_response_payload
 
 
 class MediaGenerationServiceTests(unittest.TestCase):
@@ -117,7 +116,8 @@ class MediaGenerationServiceTests(unittest.TestCase):
             self.assertEqual(promoted["generation_mode"], "full")
             self.assertEqual(promoted["promoted_from_replay_key"], preview["replay_key"])
             self.assertIn("preview_render_record", promoted)
-            self.assertIn("/full/", promoted["audio_path"])
+            self.assertIn("/generated/", promoted["audio_path"])
+            self.assertNotEqual(preview["replay_key"], promoted["replay_key"])
 
     def test_deterministic_replay_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
