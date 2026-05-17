@@ -8,6 +8,7 @@ import unittest
 from pathlib import Path
 
 from services.media_generation import SunoAdapter, generate_music_for_wf005
+from services.media_generation.adapters import normalize_provider_response_payload
 
 
 class MediaGenerationServiceTests(unittest.TestCase):
@@ -28,17 +29,25 @@ class MediaGenerationServiceTests(unittest.TestCase):
             self.assertTrue(result["audio_path"].endswith(".wav"))
             self.assertIn("projects/jrt/audio/generated/", result["audio_path"])
             self.assertIn("provider_generation_id", result)
+            self.assertIn("job_id", result)
+            self.assertIn("artifacts", result)
+            self.assertIn("cost", result)
+            self.assertIn("provenance_ref", result)
+            self.assertIn("policy_ref", result)
             self.assertIn("render_metadata", result)
             self.assertEqual(
                 result["render_metadata"]["provider_generation_id"],
                 result["provider_generation_id"],
             )
             self.assertEqual(result["uniqueness_report_ref"], "registry/reports/uniqueness-001.json")
+            self.assertEqual(result["policy_ref"], "registry/reports/uniqueness-001.json")
             self.assertEqual(result["render_metadata"]["provider_name"], "stub_genaudio")
             self.assertEqual(result["render_metadata"]["model"], "stub-genaudio-v1")
             self.assertEqual(result["render_metadata"]["model_version"], "1.0.0")
             self.assertIn("request_payload_hash", result["render_metadata"])
             self.assertIn("generation_timestamp", result["render_metadata"])
+            self.assertEqual(result["artifact_refs"], result["artifacts"])
+            self.assertEqual(result["cost_summary"], result["cost"])
 
             provenance_log = root / "registry" / "provenance_log.jsonl"
             self.assertTrue(provenance_log.exists())
@@ -69,6 +78,7 @@ class MediaGenerationServiceTests(unittest.TestCase):
             self.assertEqual(first["replay_key"], second["replay_key"])
             self.assertEqual(first["audio_path"], second["audio_path"])
             self.assertEqual(first["provider_generation_id"], second["provider_generation_id"])
+            self.assertEqual(first["job_id"], second["job_id"])
 
             provenance_rows = [
                 json.loads(line)
@@ -155,6 +165,19 @@ class MediaGenerationServiceTests(unittest.TestCase):
         finally:
             if previous_key is not None:
                 os.environ["SUNO_API_KEY"] = previous_key
+
+    def test_provider_response_normalization_aliases(self) -> None:
+        normalized = normalize_provider_response_payload(
+            {"generation_id": "gen-1", "output": ["https://audio.example/file.wav"]}
+        )
+        self.assertEqual(normalized["id"], "gen-1")
+        self.assertEqual(normalized["audio_url"], "https://audio.example/file.wav")
+
+    def test_provider_response_normalization_drops_malformed_audio_fields(self) -> None:
+        normalized = normalize_provider_response_payload({"id": "x", "audio": 123, "output": [None]})
+        self.assertEqual(normalized["id"], "x")
+        self.assertNotIn("audio_base64", normalized)
+        self.assertNotIn("audio_url", normalized)
 
 
 if __name__ == "__main__":
