@@ -7,7 +7,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from services.media_generation import SunoAdapter, generate_music_for_wf005
+from services.media_generation import GenerationMode, SunoAdapter, generate_music_for_wf005, promote_preview_to_full_render
 
 
 class MediaGenerationServiceTests(unittest.TestCase):
@@ -43,10 +43,71 @@ class MediaGenerationServiceTests(unittest.TestCase):
             provenance_log = root / "registry" / "provenance_log.jsonl"
             self.assertTrue(provenance_log.exists())
             row = json.loads(provenance_log.read_text(encoding="utf-8").strip())
-            self.assertEqual(row["stage"], "generate_music")
+            self.assertEqual(row["stage"], "generate_scene_media")
             self.assertEqual(row["workflow"], "WF-005")
             self.assertEqual(row["provider_name"], "stub_genaudio")
-            self.assertEqual(row["request_payload_hash"], result["render_metadata"]["request_payload_hash"])
+            self.assertEqual(row["audio_request_payload_hash"], result["render_metadata"]["request_payload_hash"])
+            self.assertEqual(row["visual_request_payload_hash"], result["visual_request_payload_hash"])
+            self.assertIn("scene_hash", result["scene_contract"])
+
+
+    def test_preview_outputs_are_capped_and_low_cost(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            preview = generate_music_for_wf005(
+                prompt="Cinematic piano with analog bass",
+                style_profile="jrt.noir.v1",
+                seed=42,
+                length=75,
+                tempo=108,
+                key="D minor",
+                generation_mode=GenerationMode.PREVIEW,
+                uniqueness_report_ref="registry/reports/uniqueness-preview.json",
+                project_root=root,
+            )
+            full = generate_music_for_wf005(
+                prompt="Cinematic piano with analog bass",
+                style_profile="jrt.noir.v1",
+                seed=42,
+                length=75,
+                tempo=108,
+                key="D minor",
+                generation_mode=GenerationMode.FULL,
+                uniqueness_report_ref="registry/reports/uniqueness-full.json",
+                project_root=root,
+            )
+
+            self.assertIn("/preview/", preview["audio_path"])
+            self.assertLess(Path(preview["audio_path"]).stat().st_size, Path(full["audio_path"]).stat().st_size)
+            self.assertEqual(preview["render_metadata"]["sample_rate_hz"], 16000)
+            self.assertEqual(preview["render_metadata"]["visual_quality_tier"], "low")
+            self.assertLess(preview["render_metadata"]["render_settings"]["length"], 75)
+
+    def test_promote_preview_to_full_preserves_lineage(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            preview = generate_music_for_wf005(
+                prompt="Sparse western score with steel guitar",
+                style_profile={"profile": "jrt.frontier.v2"},
+                seed="9001",
+                length=64,
+                tempo=92,
+                key="E minor",
+                generation_mode=GenerationMode.PREVIEW,
+                uniqueness_report_ref="registry/reports/uniqueness-002-preview.json",
+                project_root=root,
+            )
+
+            promoted = promote_preview_to_full_render(
+                preview_replay_key=preview["replay_key"],
+                uniqueness_report_ref="registry/reports/uniqueness-002-full.json",
+                project_root=root,
+            )
+
+            self.assertEqual(promoted["generation_mode"], "full")
+            self.assertEqual(promoted["promoted_from_replay_key"], preview["replay_key"])
+            self.assertIn("preview_render_record", promoted)
+            self.assertIn("/full/", promoted["audio_path"])
 
     def test_deterministic_replay_is_idempotent(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -108,6 +169,32 @@ class MediaGenerationServiceTests(unittest.TestCase):
             self.assertNotEqual(first["replay_key"], second["replay_key"])
             self.assertNotEqual(first["provider_generation_id"], second["provider_generation_id"])
             self.assertNotEqual(first_digest, second_digest)
+
+    def test_contract_and_visual_fingerprints_are_deterministic(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            base_params = {
+                "prompt": "Neon noir pulse with choir textures",
+                "style_profile": {"profile": "jrt.noir.v2"},
+                "seed": 333,
+                "length": 28,
+                "tempo": 110,
+                "key": "F minor",
+                "job_id": "job-contract-1",
+                "uniqueness_report_ref": "registry/reports/uniqueness-201.json",
+                "project_root": root,
+            }
+            first = generate_music_for_wf005(**base_params)
+            second = generate_music_for_wf005(**base_params)
+
+            self.assertEqual(first["scene_contract"]["scene_hash"], second["scene_contract"]["scene_hash"])
+            self.assertEqual(first["render_metadata"]["request_payload_hash"], second["render_metadata"]["request_payload_hash"])
+            self.assertEqual(first["visual_request_payload_hash"], second["visual_request_payload_hash"])
+
+            changed = generate_music_for_wf005(**{**base_params, "seed": 334, "job_id": "job-contract-2"})
+            self.assertNotEqual(first["scene_contract"]["scene_hash"], changed["scene_contract"]["scene_hash"])
+            self.assertNotEqual(first["render_metadata"]["request_payload_hash"], changed["render_metadata"]["request_payload_hash"])
+            self.assertNotEqual(first["visual_request_payload_hash"], changed["visual_request_payload_hash"])
 
     def test_scheduler_decision_can_select_dry_run_provider_adapter(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:

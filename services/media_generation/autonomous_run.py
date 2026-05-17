@@ -96,11 +96,13 @@ def run_autonomous_generation_lifecycle(
     )
 
     fingerprint = audio_fingerprint_for_path(generation_result["audio_path"])
+    post_render_metadata = dict(generation_result["render_metadata"])
+    post_render_metadata.setdefault("provider_generation_id", generation_result.get("provider_generation_id"))
     post_decision = run_post_generation_similarity_audit(
         project_root=root,
         job_id=job_id,
         track_id=track_id,
-        render_metadata=generation_result["render_metadata"],
+        render_metadata=post_render_metadata,
         audio_fingerprint=fingerprint,
         provenance_refs=media_provenance_refs,
         block_on_fail=True,
