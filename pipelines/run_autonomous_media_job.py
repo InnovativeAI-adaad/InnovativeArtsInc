@@ -32,6 +32,7 @@ from services.creative_planner.planner import (
 )
 from services.media_conductor.service import MediaConductor, MediaConductorPaths
 from services.media_generation.service import generate_music_for_wf005
+from services.release_pipeline.service import build_release_bundle, write_release_bundle
 from services.release_pipeline.generation_scheduler import schedule_generation_job
 
 
@@ -282,11 +283,35 @@ def _embedding_for_generation(
     return [round(byte / 255, 6) for byte in digest[:16]]
 
 
+def _semantic_fingerprint_for_generation(
+    plan_payload: dict[str, Any], generation_result: dict[str, Any]
+) -> dict[str, Any]:
+    audio_vec = _fingerprint_for_generation(generation_result)
+    clip_vec = _embedding_for_generation(plan_payload, generation_result)
+    centroid = sum(audio_vec) / len(audio_vec) if audio_vec else 0.0
+    render_metadata = generation_result.get("render_metadata", {})
+    return {
+        "audio": {
+            "tempo_estimate": int(render_metadata.get("tempo", 120)),
+            "chroma_profile": audio_vec[:12],
+            "spectral_centroid_stats": {"mean": round(centroid, 6), "std": 0.0},
+        },
+        "visual": {
+            "dominant_palette_hash": hashlib.sha256(
+                json.dumps(render_metadata, sort_keys=True).encode("utf-8")
+            ).hexdigest()[:16],
+            "frame_embedding_centroid": clip_vec[:8],
+            "clip_embedding_hash_buckets": [int(v * 1000) % 256 for v in clip_vec[:12]],
+        },
+    }
+
+
 def _quality_manifest(
     *,
     request: AutonomousMediaJobRequest,
     audio_path: str,
     lyrics_path: Path,
+    semantic_fingerprint: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     return {
         "project": "autonomous-media-job",
@@ -316,6 +341,7 @@ def _quality_manifest(
                         request.creative_brief.get("clipped_samples", 0)
                     ),
                 },
+                "semantic_fingerprint": semantic_fingerprint or {},
             }
         ],
     }
@@ -437,6 +463,9 @@ def run_autonomous_media_job(
         audio_path = Path(generation_result["audio_path"])
         fingerprint = _fingerprint_for_generation(generation_result)
         embedding = _embedding_for_generation(prompt_payload, generation_result)
+        semantic_fingerprint = _semantic_fingerprint_for_generation(
+            prompt_payload, generation_result
+        )
         post_generation_gate = run_similarity_audit(
             {
                 "job_id": f"{request.job_id}-post",
@@ -444,6 +473,7 @@ def run_autonomous_media_job(
                 "render_metadata": generation_result["render_metadata"],
                 "audio_fingerprint": fingerprint,
                 "embedding": embedding,
+                "semantic_fingerprint": semantic_fingerprint,
                 "provenance_log_path": str(root / "registry" / "provenance_log.jsonl"),
                 "similarity_policy_path": str(_repo_path(root, similarity_policy_path)),
             }
@@ -453,7 +483,10 @@ def run_autonomous_media_job(
             root, request, prompt_plan.prompt_blueprint
         )
         manifest = _quality_manifest(
-            request=request, audio_path=str(audio_path), lyrics_path=lyrics_path
+            request=request,
+            audio_path=str(audio_path),
+            lyrics_path=lyrics_path,
+            semantic_fingerprint=semantic_fingerprint,
         )
         quality_manifest_path = (
             root
@@ -480,6 +513,48 @@ def run_autonomous_media_job(
             and validation_results["all_required_checks_passed"]
         )
 
+        release_bundle = build_release_bundle(
+            release_id=request.job_id,
+            title=str(request.creative_brief.get("title") or request.track_id),
+            artist_name=str(
+                request.artist_profile.get("artist_name")
+                or request.artist_profile.get("name")
+                or "Unknown Artist"
+            ),
+            masters=[
+                {
+                    "track_id": request.track_id,
+                    "path": str(audio_path.relative_to(root))
+                    if audio_path.is_relative_to(root)
+                    else str(audio_path),
+                }
+            ],
+            stems=[],
+            credits=[
+                {
+                    "name": str(
+                        request.artist_profile.get("artist_name")
+                        or request.artist_profile.get("name")
+                        or "Unknown Artist"
+                    ),
+                    "role": "artist",
+                }
+            ],
+            rights_metadata={
+                "copyright_owner": str(
+                    request.artist_profile.get("rights_owner")
+                    or request.artist_profile.get("artist_name")
+                    or request.artist_profile.get("name")
+                    or "Unknown Artist"
+                ),
+                "scheduler_plan_id": str(scheduler_decision["selected_plan_id"]),
+                "scheduler_provider": str(scheduler_decision["selected_provider"]),
+                "scheduler_model": str(scheduler_decision["selected_model"]),
+            },
+        )
+        release_bundle_path = write_release_bundle(release_bundle, repo_root=root)
+        release_bundle_artifact_ref = str(release_bundle_path.relative_to(root))
+
         conductor = MediaConductor(
             paths=MediaConductorPaths.from_repo_root(root),
             actor="autonomous-media-job-cli",
@@ -497,6 +572,14 @@ def run_autonomous_media_job(
                         1 - float(post_generation_gate["max_similarity"]), 6
                     ),
                     "uniqueness_validation_time_ms": 0,
+                },
+                "rollout_package": lambda _: {
+                    "release_bundle_artifact_ref": release_bundle_artifact_ref,
+                    "release_bundle": release_bundle,
+                    "scheduler_plan_id": scheduler_decision["selected_plan_id"],
+                    "scheduler_provider": scheduler_decision["selected_provider"],
+                    "scheduler_model": scheduler_decision["selected_model"],
+                    "strategy_id": prompt_plan.strategy_id,
                 },
             },
         )

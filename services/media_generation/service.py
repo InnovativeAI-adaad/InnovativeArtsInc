@@ -5,12 +5,27 @@ from __future__ import annotations
 import hashlib
 import json
 from dataclasses import dataclass
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
-from .adapters import MediaGenerationAdapter, StubGenAudioAdapter
-from .audio_analysis import write_analysis_artifact
 from .adapters import MediaGenerationAdapter, StubGenAudioAdapter, build_media_generation_adapter_from_scheduler
+from .audio_analysis import write_analysis_artifact
+
+
+def _load_brand_profile(
+    *, brand_profile_id: str | None, project_root: Path
+) -> tuple[dict[str, Any] | None, str | None]:
+    if not brand_profile_id:
+        return None, None
+    profile_path = project_root / "registry" / "style_memory" / f"{brand_profile_id}.json"
+    if not profile_path.exists():
+        raise ValueError(f"Unknown brand_profile_id '{brand_profile_id}' at {profile_path}")
+    profile = json.loads(profile_path.read_text(encoding="utf-8"))
+    profile_hash = hashlib.sha256(
+        json.dumps(profile, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    ).hexdigest()
+    return profile, profile_hash
 
 
 @dataclass(frozen=True)
@@ -23,6 +38,8 @@ class ReplayContract:
     length: int
     tempo: int | None = None
     key: str | None = None
+    brand_profile_id: str | None = None
+    brand_profile_hash: str | None = None
 
     def as_payload(self) -> dict[str, Any]:
         return {
@@ -32,6 +49,8 @@ class ReplayContract:
             "length": self.length,
             "tempo": self.tempo,
             "key": self.key,
+            "brand_profile_id": self.brand_profile_id,
+            "brand_profile_hash": self.brand_profile_hash,
         }
 
     def deterministic_key(self) -> str:
@@ -65,6 +84,7 @@ def generate_music_for_wf005(
     length: int,
     tempo: int | None = None,
     key: str | None = None,
+    brand_profile_id: str | None = None,
     uniqueness_report_ref: str,
     provider: MediaGenerationAdapter | None = None,
     scheduler_decision: dict[str, Any] | None = None,
@@ -72,17 +92,18 @@ def generate_music_for_wf005(
     project_root: str | Path = ".",
 ) -> dict[str, Any]:
     """Callable WF-005 entrypoint that enforces replay and provenance conventions."""
+    root = Path(project_root)
+    brand_profile, brand_profile_hash = _load_brand_profile(brand_profile_id=brand_profile_id, project_root=root)
     replay_contract = ReplayContract(
         prompt=prompt,
         style_profile=style_profile,
-        seed=seed,
-        length=length,
+        duration=length,
         tempo=tempo,
         key=key,
+        brand_profile_id=brand_profile_id,
+        brand_profile_hash=brand_profile_hash,
     )
     replay_key = replay_contract.deterministic_key()
-
-    root = Path(project_root)
     audio_dir = root / "projects" / "jrt" / "audio" / "generated"
     metadata_dir = root / "projects" / "jrt" / "metadata" / "renders"
     metadata_dir.mkdir(parents=True, exist_ok=True)
@@ -103,12 +124,20 @@ def generate_music_for_wf005(
         prompt=prompt,
         style_profile=style_profile,
         seed=seed,
-        length=length,
+        length=effective_length,
         tempo=tempo,
         key=key,
+        brand_profile=brand_profile,
+        brand_profile_id=brand_profile_id,
+        brand_profile_hash=brand_profile_hash,
         output_dir=audio_dir,
         replay_key=replay_key,
+        generation_mode=generation_mode.value,
+        sample_rate_hz=sample_rate_hz,
+        visual_quality_tier="low" if is_preview else "high",
     )
+
+    visual_result = generate_visual_params(scene_contract)
 
     analysis_artifact = write_analysis_artifact(
         audio_path=provider_result.audio_path,
@@ -152,11 +181,15 @@ def generate_music_for_wf005(
         # transition aliases for backward-compatible payload consumers
         "artifact_refs": artifacts,
         "cost_summary": cost_block,
+        "replay_key": replay_key,
+        "brand_profile_id": brand_profile_id,
+        "brand_profile_hash": brand_profile_hash,
         "replayed": False,
+        "generation_mode": generation_mode.value,
     }
 
     render_record = {
-        "contract": replay_contract.as_payload(),
+        "contract": scene_contract.as_payload(),
         "replay_key": replay_key,
         "result": response,
     }
@@ -164,7 +197,7 @@ def generate_music_for_wf005(
 
     provenance_entry = {
         "workflow": "WF-005",
-        "stage": "generate_music",
+        "stage": "generate_scene_media",
         "replay_key": replay_key,
         "audio_path": provider_result.audio_path,
         "provider_generation_id": provider_result.provider_generation_id,
@@ -174,10 +207,41 @@ def generate_music_for_wf005(
         "provider_name": provider_result.render_metadata.get("provider_name"),
         "model": provider_result.render_metadata.get("model"),
         "model_version": provider_result.render_metadata.get("model_version"),
-        "request_payload_hash": provider_result.render_metadata.get("request_payload_hash"),
+        "audio_request_payload_hash": provider_result.render_metadata.get("request_payload_hash"),
+        "visual_request_payload_hash": visual_result["visual_request_payload_hash"],
         "generation_timestamp": provider_result.render_metadata.get("generation_timestamp"),
+        "brand_profile_id": brand_profile_id,
+        "brand_profile_hash": brand_profile_hash,
         "render_metadata": provider_result.render_metadata,
+        "generation_mode": generation_mode.value,
     }
     _append_provenance_if_missing(root / "registry" / "provenance_log.jsonl", provenance_entry)
 
     return response
+
+
+def promote_preview_to_full_render(*, preview_replay_key: str, uniqueness_report_ref: str, project_root: str | Path = ".") -> dict[str, Any]:
+    root = Path(project_root)
+    preview_record = root / "projects" / "jrt" / "metadata" / "renders" / f"{preview_replay_key}.json"
+    if not preview_record.exists():
+        raise FileNotFoundError(f"Preview replay record not found: {preview_record}")
+
+    payload = json.loads(preview_record.read_text(encoding="utf-8"))
+    contract = payload["contract"]
+    if contract.get("generation_mode") != GenerationMode.PREVIEW.value:
+        raise ValueError("Replay contract is not a preview generation")
+
+    result = generate_music_for_wf005(
+        prompt=contract["prompt"],
+        style_profile=contract["style_profile"],
+        seed=contract["seed"],
+        length=contract["length"],
+        tempo=contract.get("tempo"),
+        key=contract.get("key"),
+        generation_mode=GenerationMode.FULL,
+        uniqueness_report_ref=uniqueness_report_ref,
+        project_root=root,
+    )
+    result["promoted_from_replay_key"] = preview_replay_key
+    result["preview_render_record"] = str(preview_record)
+    return result

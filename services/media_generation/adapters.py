@@ -30,11 +30,10 @@ def _truthy_env(value: str | None) -> bool:
     return (value or "").strip().lower() in {"1", "true", "yes", "on"}
 
 
-def _deterministic_stub_wav_bytes(*, entropy_source: str, duration_seconds: int) -> bytes:
+def _deterministic_stub_wav_bytes(*, entropy_source: str, duration_seconds: int, sample_rate_hz: int = 44_100) -> bytes:
     entropy_digest = hashlib.sha256(entropy_source.encode("utf-8")).digest()
     entropy_int = int.from_bytes(entropy_digest[:8], "little")
 
-    sample_rate_hz = 44_100
     frame_count = sample_rate_hz * duration_seconds
     amplitude = 0.2
     base_frequency = 180 + (entropy_digest[8] % 220)
@@ -118,6 +117,9 @@ class MediaGenerationAdapter(Protocol):
         replay_key: str,
         tempo: int | None = None,
         key: str | None = None,
+        brand_profile: dict[str, Any] | None = None,
+        brand_profile_id: str | None = None,
+        brand_profile_hash: str | None = None,
     ) -> ProviderGenerationResult:
         """Generate a render for the provided contract payload."""
 
@@ -146,6 +148,9 @@ def _build_render_settings(
     length: int,
     tempo: int | None,
     key: str | None,
+    brand_profile: dict[str, Any] | None = None,
+    brand_profile_id: str | None = None,
+    brand_profile_hash: str | None = None,
 ) -> dict[str, Any]:
     return {
         "prompt": prompt,
@@ -154,6 +159,9 @@ def _build_render_settings(
         "length": length,
         "tempo": tempo,
         "key": key,
+        "brand_profile": brand_profile,
+        "brand_profile_id": brand_profile_id,
+        "brand_profile_hash": brand_profile_hash,
     }
 
 
@@ -161,6 +169,9 @@ def _build_provider_payload(*, render_settings: dict[str, Any], model: str, mode
     payload = {
         "prompt": render_settings["prompt"],
         "style_profile": render_settings["style_profile"],
+        "brand_profile": render_settings["brand_profile"],
+        "brand_profile_id": render_settings["brand_profile_id"],
+        "brand_profile_hash": render_settings["brand_profile_hash"],
         "seed": render_settings["seed"],
         "duration_seconds": render_settings["length"],
         "tempo": render_settings["tempo"],
@@ -219,6 +230,9 @@ class StubGenAudioAdapter:
         replay_key: str,
         tempo: int | None = None,
         key: str | None = None,
+        brand_profile: dict[str, Any] | None = None,
+        brand_profile_id: str | None = None,
+        brand_profile_hash: str | None = None,
     ) -> ProviderGenerationResult:
         output_dir.mkdir(parents=True, exist_ok=True)
         audio_path = output_dir / f"{replay_key}.wav"
@@ -239,6 +253,9 @@ class StubGenAudioAdapter:
             length=length,
             tempo=tempo,
             key=key,
+            brand_profile=brand_profile,
+            brand_profile_id=brand_profile_id,
+            brand_profile_hash=brand_profile_hash,
         )
         request_payload = _build_provider_payload(
             render_settings=render_settings,
@@ -261,7 +278,7 @@ class StubGenAudioAdapter:
         )
         duration_seconds = max(1, min(int(length), 5))
         audio_path.write_bytes(
-            _deterministic_stub_wav_bytes(entropy_source=entropy_source, duration_seconds=duration_seconds)
+            _deterministic_stub_wav_bytes(entropy_source=entropy_source, duration_seconds=duration_seconds, sample_rate_hz=sample_rate_hz)
         )
 
         return ProviderGenerationResult(
@@ -276,6 +293,7 @@ class StubGenAudioAdapter:
                 render_settings=render_settings,
                 generation_timestamp=_utc_now_iso(),
                 dry_run=True,
+                extra={"generation_mode": generation_mode, "sample_rate_hz": sample_rate_hz, "visual_quality_tier": visual_quality_tier, "visual_keyframes": 3 if generation_mode == "preview" else 12},
             ),
         )
 
@@ -329,6 +347,9 @@ class _HttpAudioProviderAdapter:
         replay_key: str,
         tempo: int | None = None,
         key: str | None = None,
+        brand_profile: dict[str, Any] | None = None,
+        brand_profile_id: str | None = None,
+        brand_profile_hash: str | None = None,
     ) -> ProviderGenerationResult:
         output_dir.mkdir(parents=True, exist_ok=True)
         render_settings = _build_render_settings(
@@ -338,6 +359,9 @@ class _HttpAudioProviderAdapter:
             length=length,
             tempo=tempo,
             key=key,
+            brand_profile=brand_profile,
+            brand_profile_id=brand_profile_id,
+            brand_profile_hash=brand_profile_hash,
         )
         request_payload = _build_provider_payload(
             render_settings=render_settings,
@@ -355,6 +379,9 @@ class _HttpAudioProviderAdapter:
                 request_payload_hash=request_payload_hash,
                 render_settings=render_settings,
                 generation_timestamp=generation_timestamp,
+                generation_mode=generation_mode,
+                sample_rate_hz=sample_rate_hz,
+                visual_quality_tier=visual_quality_tier,
             )
 
         credentials = self._credentials()
@@ -397,6 +424,9 @@ class _HttpAudioProviderAdapter:
         request_payload_hash: str,
         render_settings: dict[str, Any],
         generation_timestamp: str,
+        generation_mode: str,
+        sample_rate_hz: int,
+        visual_quality_tier: str,
     ) -> ProviderGenerationResult:
         audio_path = output_dir / f"{replay_key}.wav"
         provider_generation_id = f"{self.provider_name}:dry-run:{request_payload_hash[:16]}"
@@ -418,6 +448,7 @@ class _HttpAudioProviderAdapter:
                 render_settings=render_settings,
                 generation_timestamp=generation_timestamp,
                 dry_run=True,
+                extra={"generation_mode": generation_mode, "sample_rate_hz": sample_rate_hz, "visual_quality_tier": visual_quality_tier, "visual_keyframes": 3 if generation_mode == "preview" else 12},
             ),
         )
 

@@ -1,0 +1,17 @@
+{
+  "profile_id": "neon_pulse",
+  "audio_motifs": {
+    "tempo_bpm_range": [118, 132],
+    "instrumentation_hints": [
+      "analog bass arpeggios",
+      "gated synth chords",
+      "electronic percussion",
+      "airy vocal chops"
+    ]
+  },
+  "visual_motifs": {
+    "palette": ["#0B1021", "#7C3AED", "#06B6D4", "#F472B6"],
+    "framing_style": "wide angle hero frames with layered foreground silhouettes",
+    "motion_profile": "rhythmic snap zooms, lateral parallax glides"
+  }
+}
