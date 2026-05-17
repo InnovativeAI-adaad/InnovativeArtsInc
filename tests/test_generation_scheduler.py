@@ -6,6 +6,7 @@ from services.release_pipeline.generation_scheduler import (
     CandidateGenerationPlan,
     append_scheduler_dashboard_metrics,
     media_generation_adapter_config_from_decision,
+    next_retry_target,
     run_scheduler_hook,
     select_fallback_provider_model,
     select_generation_plan,
@@ -50,8 +51,11 @@ def test_select_generation_plan_scores_and_ranks_candidates() -> None:
         release_urgency="normal",
     )
 
-    assert decision["selected_plan_id"] == "plan-balanced"
-    assert decision["selected_model_version"] == "2026-01"
+    assert decision["selected_plan_id"] == "plan-fast-cheap"
+    assert decision["selected_by_policy"] is True
+    assert decision["policy_tier"] == "preview"
+    assert isinstance(decision["estimated_cost"], float)
+    assert any(item["model_version"] == "2026-01" for item in decision["ranking"])
     assert decision["ranking"][0]["score"] >= decision["ranking"][1]["score"]
     assert decision["provider_model_preset"]["primary"]["provider"]
 
@@ -188,3 +192,50 @@ def test_media_generation_adapter_config_from_decision_includes_model_version() 
         "model_version": "v4",
         "dry_run": True,
     }
+
+
+def test_policy_chooses_cheapest_valid_candidate() -> None:
+    decision = select_generation_plan(
+        job_id="job-105",
+        candidate_plans=_candidate_plans(),
+        campaign_budget_tier="mid",
+        release_urgency="normal",
+        policy_tier="preview",
+    )
+
+    assert decision["selected_provider"] == "openai"
+    assert decision["selected_model"] == "gpt-4o-mini"
+
+
+def test_next_retry_target_is_deterministic_and_respects_limits() -> None:
+    decision = select_generation_plan(
+        job_id="job-106",
+        candidate_plans=_candidate_plans(),
+        campaign_budget_tier="mid",
+        release_urgency="normal",
+    )
+
+    retry1 = next_retry_target(
+        scheduler_decision=decision,
+        attempted_targets=[(decision["selected_provider"], decision["selected_model"])],
+        failure_type="timeout",
+        attempt_number=1,
+    )
+    assert retry1 is not None
+    assert retry1["attempt"] == 2
+
+    retry_blocked = next_retry_target(
+        scheduler_decision=decision,
+        attempted_targets=[(decision["selected_provider"], decision["selected_model"])],
+        failure_type="fatal",
+        attempt_number=1,
+    )
+    assert retry_blocked is None
+
+    retry_exhausted = next_retry_target(
+        scheduler_decision=decision,
+        attempted_targets=[(decision["selected_provider"], decision["selected_model"])],
+        failure_type="timeout",
+        attempt_number=3,
+    )
+    assert retry_exhausted is None

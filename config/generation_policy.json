@@ -1,0 +1,37 @@
+{
+  "policy_version": "1.0.0",
+  "tiers": {
+    "draft": {
+      "max_cost_per_render_usd": 0.25,
+      "max_cost_per_minute_usd": 0.8,
+      "allowed_providers": ["openai", "anthropic"]
+    },
+    "preview": {
+      "max_cost_per_render_usd": 0.75,
+      "max_cost_per_minute_usd": 2.0,
+      "allowed_providers": ["openai", "anthropic", "suno"]
+    },
+    "release": {
+      "max_cost_per_render_usd": 2.0,
+      "max_cost_per_minute_usd": 5.0,
+      "allowed_providers": ["openai", "anthropic", "suno"]
+    }
+  },
+  "fallback_order": [
+    {"provider": "openai", "model": "gpt-4o-mini"},
+    {"provider": "anthropic", "model": "claude-3.5-haiku"},
+    {"provider": "openai", "model": "gpt-4.1"}
+  ],
+  "pricing_usd": {
+    "openai:gpt-4o-mini": {"per_1k_tokens": 0.0003, "per_second": 0.0},
+    "anthropic:claude-3.5-haiku": {"per_1k_tokens": 0.0008, "per_second": 0.0},
+    "openai:gpt-4.1": {"per_1k_tokens": 0.0025, "per_second": 0.0},
+    "anthropic:claude-3.7-sonnet": {"per_1k_tokens": 0.003, "per_second": 0.0},
+    "openai:gpt-4o": {"per_1k_tokens": 0.005, "per_second": 0.0},
+    "suno:chirp-v4": {"per_1k_tokens": 0.0, "per_second": 0.02}
+  },
+  "retry": {
+    "max_attempts": 3,
+    "retryable_error_types": ["timeout", "transient", "provider_error"]
+  }
+}
