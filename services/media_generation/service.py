@@ -13,6 +13,11 @@ from .adapters import MediaGenerationAdapter, StubGenAudioAdapter, build_media_g
 from .audio_analysis import write_analysis_artifact
 
 
+class GenerationMode(str, Enum):
+    PREVIEW = "preview"
+    FULL = "full"
+
+
 def _load_brand_profile(
     *, brand_profile_id: str | None, project_root: Path
 ) -> tuple[dict[str, Any] | None, str | None]:
@@ -40,6 +45,7 @@ class ReplayContract:
     key: str | None = None
     brand_profile_id: str | None = None
     brand_profile_hash: str | None = None
+    generation_mode: str = GenerationMode.FULL.value
 
     def as_payload(self) -> dict[str, Any]:
         return {
@@ -51,6 +57,7 @@ class ReplayContract:
             "key": self.key,
             "brand_profile_id": self.brand_profile_id,
             "brand_profile_hash": self.brand_profile_hash,
+            "generation_mode": self.generation_mode,
         }
 
     def deterministic_key(self) -> str:
@@ -84,6 +91,7 @@ def generate_music_for_wf005(
     length: int,
     tempo: int | None = None,
     key: str | None = None,
+    generation_mode: GenerationMode = GenerationMode.FULL,
     brand_profile_id: str | None = None,
     uniqueness_report_ref: str,
     provider: MediaGenerationAdapter | None = None,
@@ -97,11 +105,13 @@ def generate_music_for_wf005(
     replay_contract = ReplayContract(
         prompt=prompt,
         style_profile=style_profile,
-        duration=length,
+        seed=seed,
+        length=length,
         tempo=tempo,
         key=key,
         brand_profile_id=brand_profile_id,
         brand_profile_hash=brand_profile_hash,
+        generation_mode=generation_mode.value,
     )
     replay_key = replay_contract.deterministic_key()
     audio_dir = root / "projects" / "jrt" / "audio" / "generated"
@@ -120,11 +130,13 @@ def generate_music_for_wf005(
         if scheduler_decision
         else StubGenAudioAdapter()
     )
+    is_preview = generation_mode == GenerationMode.PREVIEW
+    sample_rate_hz = 22050 if is_preview else 44100
     provider_result = active_provider.generate(
         prompt=prompt,
         style_profile=style_profile,
         seed=seed,
-        length=effective_length,
+        length=length,
         tempo=tempo,
         key=key,
         brand_profile=brand_profile,
@@ -136,8 +148,6 @@ def generate_music_for_wf005(
         sample_rate_hz=sample_rate_hz,
         visual_quality_tier="low" if is_preview else "high",
     )
-
-    visual_result = generate_visual_params(scene_contract)
 
     analysis_artifact = write_analysis_artifact(
         audio_path=provider_result.audio_path,
@@ -181,7 +191,6 @@ def generate_music_for_wf005(
         # transition aliases for backward-compatible payload consumers
         "artifact_refs": artifacts,
         "cost_summary": cost_block,
-        "replay_key": replay_key,
         "brand_profile_id": brand_profile_id,
         "brand_profile_hash": brand_profile_hash,
         "replayed": False,
@@ -189,7 +198,7 @@ def generate_music_for_wf005(
     }
 
     render_record = {
-        "contract": scene_contract.as_payload(),
+        "contract": replay_contract.as_payload(),
         "replay_key": replay_key,
         "result": response,
     }
@@ -208,7 +217,7 @@ def generate_music_for_wf005(
         "model": provider_result.render_metadata.get("model"),
         "model_version": provider_result.render_metadata.get("model_version"),
         "audio_request_payload_hash": provider_result.render_metadata.get("request_payload_hash"),
-        "visual_request_payload_hash": visual_result["visual_request_payload_hash"],
+        "visual_request_payload_hash": None,
         "generation_timestamp": provider_result.render_metadata.get("generation_timestamp"),
         "brand_profile_id": brand_profile_id,
         "brand_profile_hash": brand_profile_hash,
