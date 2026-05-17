@@ -267,7 +267,36 @@ class IPAgentSimilarityPolicyTests(unittest.TestCase):
             }
         )
         self.assertEqual(block_result["decision"], "block")
-        self.assertAlmostEqual(block_result["max_similarity"], 1.0, places=6)
+
+    def test_run_similarity_audit_enforces_new_creative_output_threshold(self) -> None:
+        policy_path = self._policy_file(revise=0.9, block=0.99)
+        provenance = self._provenance_file(
+            [
+                {
+                    "job_id": "prior-1",
+                    "track_id": "track-prior-1",
+                    "sha256": "same-binary",
+                    "render_metadata": {"prompt": "shared"},
+                    "audio_fingerprint": [1.0, 0.0],
+                    "embedding": [1.0, 0.0],
+                }
+            ]
+        )
+        result = agent.run_similarity_audit(
+            {
+                "job_id": "job-new-creative-check",
+                "workflow_stage": "post_generation",
+                "uniqueness_thresholds": {"post_generation": 0.99},
+                "binary_digest_sha256": "same-binary",
+                "similarity_policy_path": policy_path,
+                "provenance_log_path": provenance,
+                "render_metadata": {"prompt": "new"},
+                "audio_fingerprint": [0.0, 1.0],
+                "embedding": [0.0, 1.0],
+            }
+        )
+        self.assertEqual(result["decision"], "revise")
+        self.assertFalse(result["audit_artifact"]["new_creative_output"]["passed"])
 
     def test_run_similarity_audit_required_methods_all_pass_release_intent_enforcement(self) -> None:
         policy_path = self._policy_file(

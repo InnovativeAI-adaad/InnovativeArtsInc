@@ -575,6 +575,17 @@ def run_similarity_audit(payload: dict) -> dict:
         method_scores_by_entry,
         policy,
     )
+    semantic_distance = max(0.0, min(1.0, 1.0 - aggregate_similarity))
+    stage_name = str(payload.get("workflow_stage") or payload.get("stage") or "default")
+    thresholds = payload.get("uniqueness_thresholds") or {}
+    stage_threshold = float(thresholds.get(stage_name, thresholds.get("default", 0.0)) or 0.0)
+    candidate_binary_sha = payload.get("binary_digest_sha256") or payload.get("sha256")
+    prior_binary_sha = most_similar_ref.get("sha256") if isinstance(most_similar_ref, dict) else None
+    binary_different = bool(candidate_binary_sha and prior_binary_sha and candidate_binary_sha != prior_binary_sha)
+    semantic_far_enough = semantic_distance > stage_threshold
+    new_creative_output = binary_different and semantic_far_enough
+    if stage_threshold > 0 and decision == "pass" and not new_creative_output:
+        decision = "revise"
 
     confidence = max(0.0, min(1.0, aggregate_similarity))
 
@@ -598,6 +609,13 @@ def run_similarity_audit(payload: dict) -> dict:
             "decision_policy": policy.decision_policy,
         },
         "decision_rationale": decision_rationale,
+        "new_creative_output": {
+            "stage": stage_name,
+            "binary_different": binary_different,
+            "semantic_distance": round(semantic_distance, 6),
+            "threshold": stage_threshold,
+            "passed": new_creative_output,
+        },
         "method_results": [
             {
                 "method": item.method,
@@ -733,6 +751,10 @@ def run(input=None) -> dict:
             parent_artifact_hash=payload.get("parent_artifact_hash"),
             retry_attempt=int(payload.get("retry_attempt", payload.get("attempt", 0)) or 0),
             log_path=payload.get("provenance_log_path", "registry/provenance_log.jsonl"),
+            semantic_fingerprints={
+                str(Path(target)): payload.get("semantic_fingerprint", {})
+                for target in provenance_targets
+            },
         )
 
         stage_result_code = "success"
